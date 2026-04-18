@@ -6,4 +6,4 @@ We build and maintain open-source projects focused on modern security, automatio
 
 ## Connect
 
-- Organization: https://github.com/dcyfr-labs
+- Repositories: https://github.com/orgs/dcyfr-labs/repositories
