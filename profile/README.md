@@ -165,6 +165,5 @@ All DCYFR Labs packages follow responsible disclosure. Report vulnerabilities vi
 ## 📬 Connect
 
 - Website: [dcyfr.ai](https://www.dcyfr.ai)
-- Founder: [@dcyfr](https://github.com/dcyfr) (Drew)
 - npm org: [@dcyfr](https://www.npmjs.com/org/dcyfr)
 - Repositories: https://github.com/orgs/dcyfr-labs/repositories
