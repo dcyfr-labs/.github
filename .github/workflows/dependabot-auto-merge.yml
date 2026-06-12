@@ -1,7 +1,19 @@
 name: Dependabot auto-merge (reusable)
 
-# Centralized auto-merge for Dependabot patch/minor bumps across dcyfr-labs AI-* repos.
-# Gates on ALL checks on the PR (CI + security scanners) passing, then squash-merges.
+# Centralized auto-merge for Dependabot patch/minor bumps across dcyfr-labs repos.
+# Major bumps are never auto-merged - they stay open for manual review.
+#
+# Strategy, in order:
+#   1. Native auto-merge (gh pr merge --auto): for repos whose default branch
+#      has required status checks (ruleset/branch protection) and the
+#      "Allow auto-merge" repo setting. GitHub merges server-side once all
+#      REQUIRED checks pass - optional/flaky checks (visual snapshots, Vercel
+#      previews, secret-gated scanners that fail on Dependabot-triggered runs)
+#      cannot block the merge, and no runner is held while waiting.
+#   2. "Clean status" rejection means everything is already green: merge directly.
+#   3. Polling fallback for repos without usable branch protection (private
+#      repos on the GitHub Free org plan): wait for ALL checks, then merge.
+#
 # Called by each repo's thin .github/workflows/dependabot-auto-merge.yml caller.
 
 on:
@@ -12,7 +24,7 @@ on:
         type: string
         default: squash
       timeout-minutes:
-        description: "Max minutes to wait for checks before deferring (never merges on timeout)"
+        description: "Polling fallback only: max minutes to wait for checks before deferring (never merges on timeout)"
         type: number
         default: 45
 
@@ -31,7 +43,7 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      - name: Approve and gated auto-merge (patch/minor only)
+      - name: Approve and auto-merge (patch/minor only)
         if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -40,7 +52,32 @@ jobs:
           TIMEOUT_MIN: ${{ inputs.timeout-minutes }}
         run: |
           set -euo pipefail
+
+          # Idempotency guard: synchronize/reopened events re-run this job.
+          pr_state="$(gh pr view "$PR_URL" --json state,autoMergeRequest \
+            --jq '[.state, (.autoMergeRequest != null | tostring)] | join(" ")')"
+          case "$pr_state" in
+            MERGED*)   echo "PR already merged - nothing to do."; exit 0 ;;
+            *" true")  echo "Native auto-merge already armed - nothing to do."; exit 0 ;;
+          esac
+
           gh pr review --approve "$PR_URL" || echo "approve skipped (non-fatal)"
+
+          # 1) Native auto-merge: requires required checks on the base branch.
+          if out="$(gh pr merge --auto --"$MERGE_METHOD" "$PR_URL" 2>&1)"; then
+            echo "Native auto-merge armed - GitHub merges once required checks pass."
+            exit 0
+          fi
+          echo "$out"
+
+          # 2) Already green: GitHub rejects --auto with "clean status" - merge now.
+          if grep -qi 'clean status' <<<"$out"; then
+            gh pr merge --"$MERGE_METHOD" "$PR_URL"
+            exit 0
+          fi
+
+          # 3) Polling fallback (no usable branch protection on this repo).
+          echo "Native auto-merge unavailable - falling back to check polling."
           deadline=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
           while :; do
             # All checks on the PR EXCEPT this auto-merge workflow's own (prefix-matched so it
@@ -55,7 +92,7 @@ jobs:
                 exit 0
               fi
               if ! grep -q '^pending$' <<<"$buckets"; then
-                echo "All required checks green - merging ($MERGE_METHOD)."
+                echo "All checks green - merging ($MERGE_METHOD)."
                 gh pr merge --"$MERGE_METHOD" "$PR_URL"
                 exit 0
               fi
