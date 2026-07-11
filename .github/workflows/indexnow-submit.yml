@@ -1,0 +1,99 @@
+name: IndexNow submit
+
+on:
+  workflow_call:
+    inputs:
+      host:
+        description: Canonical production host (no scheme, e.g. www.example.com)
+        required: true
+        type: string
+    secrets:
+      indexnow-key:
+        description: IndexNow key served at https://<host>/indexnow.txt
+        required: true
+
+jobs:
+  submit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Restore sitemap snapshot
+        uses: actions/cache/restore@v4
+        with:
+          path: .indexnow/snapshot.json
+          key: indexnow-${{ inputs.host }}-${{ github.run_id }}
+          restore-keys: |
+            indexnow-${{ inputs.host }}-
+
+      - name: Diff sitemap and submit to IndexNow
+        env:
+          INDEXNOW_HOST: ${{ inputs.host }}
+          INDEXNOW_KEY: ${{ secrets.indexnow-key }}
+        run: |
+          cat > /tmp/indexnow-submit.mjs <<'SCRIPT'
+          import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
+
+          const host = process.env.INDEXNOW_HOST;
+          const key = (process.env.INDEXNOW_KEY ?? "").trim();
+
+          const notice = (m) => console.log(`::notice::${m}`);
+          const warn = (m) => console.log(`::warning::${m}`);
+
+          if (!key) {
+            warn(`INDEXNOW_KEY secret is not configured for ${host}; skipping submission.`);
+            process.exit(0);
+          }
+
+          const keyLocation = `https://${host}/indexnow.txt`;
+          const served = await fetch(keyLocation, { redirect: "manual" });
+          const servedKey = served.ok ? (await served.text()).trim() : null;
+          if (servedKey !== key) {
+            warn(`${keyLocation} does not serve the expected key (HTTP ${served.status}); is the INDEXNOW_KEY env var set on the Vercel project? Skipping submission.`);
+            process.exit(0);
+          }
+
+          const res = await fetch(`https://${host}/sitemap.xml`);
+          if (!res.ok) throw new Error(`Failed to fetch sitemap: HTTP ${res.status}`);
+          const xml = await res.text();
+
+          const entries = {};
+          for (const m of xml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+            const loc = m[1].match(/<loc>\s*([^<]+?)\s*<\/loc>/)?.[1];
+            if (!loc) continue;
+            const lastmod = m[1].match(/<lastmod>\s*([^<]+?)\s*<\/lastmod>/)?.[1] ?? "";
+            const url = new URL(loc);
+            url.host = host; // normalize apex/www variants to the canonical host
+            entries[url.toString()] = lastmod;
+          }
+          if (Object.keys(entries).length === 0) throw new Error("Sitemap parsed to zero URLs");
+
+          let prev = {};
+          if (existsSync(".indexnow/snapshot.json")) {
+            try { prev = JSON.parse(readFileSync(".indexnow/snapshot.json", "utf8")); } catch {}
+          }
+          const changed = Object.keys(entries).filter((u) => !(u in prev) || prev[u] !== entries[u]);
+
+          if (changed.length > 0) {
+            const resp = await fetch("https://api.indexnow.org/indexnow", {
+              method: "POST",
+              headers: { "content-type": "application/json; charset=utf-8" },
+              body: JSON.stringify({ host, key, keyLocation, urlList: changed.slice(0, 10000) }),
+            });
+            if (!resp.ok && resp.status !== 202) {
+              throw new Error(`IndexNow API rejected the submission: HTTP ${resp.status} ${await resp.text()}`);
+            }
+            notice(`Submitted ${changed.length} URL(s) for ${host} (HTTP ${resp.status}).`);
+          } else {
+            notice(`No new or changed URLs for ${host}; nothing submitted.`);
+          }
+
+          mkdirSync(".indexnow", { recursive: true });
+          writeFileSync(".indexnow/snapshot.json", JSON.stringify(entries, null, 2));
+          SCRIPT
+          node /tmp/indexnow-submit.mjs
+
+      - name: Save sitemap snapshot
+        if: ${{ hashFiles('.indexnow/snapshot.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: .indexnow/snapshot.json
+          key: indexnow-${{ inputs.host }}-${{ github.run_id }}
