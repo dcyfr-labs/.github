@@ -15,6 +15,15 @@ name: Dependabot auto-merge (reusable)
 #      repos on the GitHub Free org plan): wait for ALL checks, then merge.
 #
 # Called by each repo's thin .github/workflows/dependabot-auto-merge.yml caller.
+#
+# Supply-chain cooldown: npm bumps are additionally gated on package AGE. A
+# self-propagating worm (Shai-Hulud, 2026-08-04) republishes hijacked packages
+# as PATCH bumps, which is exactly what this workflow auto-merges. Advisory
+# databases lag publication by hours-to-days, so `npm audit` returns clean for
+# a version minted minutes ago - CVE-based gates structurally cannot catch it.
+# Age is the signal that does not lag. The gate FAILS CLOSED: an unreachable
+# registry or a missing publish timestamp withholds auto-merge rather than
+# waving it through.
 
 on:
   workflow_call:
@@ -27,6 +36,10 @@ on:
         description: "Polling fallback only: max minutes to wait for checks before deferring (never merges on timeout)"
         type: number
         default: 45
+      min-package-age-days:
+        description: "Withhold auto-merge for npm versions published fewer than N days ago (supply-chain cooldown). 0 disables."
+        type: number
+        default: 7
 
 permissions:
   contents: write
@@ -43,8 +56,95 @@ jobs:
         with:
           github-token: ${{ github.token }}
 
-      - name: Approve and auto-merge (patch/minor only)
+      # Supply-chain cooldown. Resolves every updated npm dependency's publish
+      # timestamp from the registry and withholds auto-merge if ANY of them is
+      # younger than the threshold. Grouped updates (the workspace groups
+      # `all-npm: ["*"]`) are checked dependency-by-dependency - the youngest
+      # member governs the whole PR.
+      - name: Enforce minimum package age
+        id: age
         if: ${{ steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor' }}
+        env:
+          MIN_AGE_DAYS: ${{ inputs.min-package-age-days }}
+          ECOSYSTEM: ${{ steps.meta.outputs.package-ecosystem }}
+          UPDATED_JSON: ${{ steps.meta.outputs.updated-dependencies-json }}
+        run: |
+          set -uo pipefail
+
+          if [ "${MIN_AGE_DAYS:-0}" -le 0 ]; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "Age gate disabled (min-package-age-days=0)."
+            exit 0
+          fi
+
+          # Only npm has a registry publish timestamp to consult. github-actions
+          # bumps are reviewed on their own track and pass through untouched.
+          case "$ECOSYSTEM" in
+            npm_and_yarn|npm|yarn|pnpm) ;;
+            *)
+              echo "ok=true" >> "$GITHUB_OUTPUT"
+              echo "Ecosystem '$ECOSYSTEM' has no npm publish timestamp - age gate not applicable."
+              exit 0 ;;
+          esac
+
+          if [ -z "${UPDATED_JSON:-}" ] || [ "$UPDATED_JSON" = "[]" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No dependency metadata resolved - withholding auto-merge (fail closed)."
+            exit 0
+          fi
+
+          now="$(date -u +%s)"
+          min_age_s=$(( MIN_AGE_DAYS * 86400 ))
+          blocked=""
+          checked=0
+
+          while IFS=$'\t' read -r name version; do
+            [ -n "$name" ] || continue
+            checked=$(( checked + 1 ))
+            if [ -z "$version" ]; then
+              blocked="$blocked ${name}(no-version-in-metadata)"
+              continue
+            fi
+            # @scope/pkg -> @scope%2Fpkg for the registry path.
+            enc="$(printf '%s' "$name" | sed 's|/|%2F|g')"
+            doc="$(curl -sS --fail --max-time 60 "https://registry.npmjs.org/${enc}" 2>/dev/null || true)"
+            if [ -z "$doc" ]; then
+              blocked="$blocked ${name}(registry-unreachable)"
+              continue
+            fi
+            pub="$(printf '%s' "$doc" | jq -r --arg v "$version" '.time[$v] // empty' 2>/dev/null || true)"
+            if [ -z "$pub" ]; then
+              blocked="$blocked ${name}@${version}(no-publish-time)"
+              continue
+            fi
+            pub_s="$(date -u -d "$pub" +%s 2>/dev/null || echo 0)"
+            if [ "$pub_s" -le 0 ]; then
+              blocked="$blocked ${name}@${version}(unparseable-timestamp)"
+              continue
+            fi
+            age_s=$(( now - pub_s ))
+            if [ "$age_s" -lt "$min_age_s" ]; then
+              blocked="$blocked ${name}@${version}($(( age_s / 86400 ))d-old)"
+            fi
+          done < <(printf '%s' "$UPDATED_JSON" | jq -r '.[] | [.dependencyName, (.newVersion // "")] | @tsv')
+
+          if [ "$checked" -eq 0 ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Parsed zero dependencies from metadata - withholding auto-merge (fail closed)."
+            exit 0
+          fi
+
+          if [ -n "$blocked" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Auto-merge withheld. Younger than ${MIN_AGE_DAYS}d or unverifiable:${blocked}"
+            echo "PR stays open for manual review - this is the supply-chain cooldown, not a failure."
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            echo "All ${checked} dependency version(s) are at least ${MIN_AGE_DAYS} days old."
+          fi
+
+      - name: Approve and auto-merge (patch/minor only)
+        if: ${{ (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor') && steps.age.outputs.ok == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
