@@ -30,7 +30,10 @@ on:
     secrets:
       CLAUDE_API_KEY:
         description: 'Claude API key enabled for Claude Code usage.'
-        required: true
+        # Not required: preserve the original per-repo behavior where the action
+        # validates the key and exits gracefully if it is absent (e.g. a repo
+        # without the secret, or dependabot's empty secret scope).
+        required: false
 
 permissions:
   contents: read
