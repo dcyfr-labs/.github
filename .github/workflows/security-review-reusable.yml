@@ -1,0 +1,71 @@
+name: Claude Code Security Review (reusable)
+
+# Single source of truth for the dcyfr-labs AI repos' Claude Code security
+# review. Callers are thin: they pass their repo-specific exclude-directories
+# and inherit CLAUDE_API_KEY; the action + checkout are pinned to SHAs HERE,
+# once, so every consumer moves in lockstep and per-repo drift ends.
+# Introduced by the 2026-08-15 security assessment (M5 durable fix).
+#
+# ⚠️ PROMPT INJECTION: not hardened against injection embedded in PR content.
+# Each caller repo must require maintainer approval for fork-PR workflows
+# (Settings → Actions → Fork pull request workflows → "Require approval for all
+# external contributors"). The dependabot skip below keeps mechanical bumps out.
+#
+# To change the action version / model / shared config for ALL repos, edit this
+# file and bump the @<sha> pin in the callers.
+
+on:
+  workflow_call:
+    inputs:
+      exclude-directories:
+        description: 'Comma/space-separated directories to skip (repo-specific).'
+        required: false
+        type: string
+        default: 'node_modules, coverage, dist, docs, tests, examples, scripts'
+      claude-model:
+        description: 'Model for the review pass.'
+        required: false
+        type: string
+        default: claude-opus-4-1-20250805
+    secrets:
+      CLAUDE_API_KEY:
+        description: 'Claude API key enabled for Claude Code usage.'
+        # Not required: preserve the original per-repo behavior where the action
+        # validates the key and exits gracefully if it is absent (e.g. a repo
+        # without the secret, or dependabot's empty secret scope).
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write  # post inline PR comments
+
+jobs:
+  security-review:
+    name: Security Review (Claude Code)
+    runs-on: ubuntu-latest
+
+    # Dependabot uses a separate secret scope, so CLAUDE_API_KEY resolves empty
+    # and the action fails. CodeQL/Semgrep/npm-audit still cover dep bumps.
+    if: github.actor != 'dependabot[bot]'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+
+      - name: Claude Code Security Review
+        uses: anthropics/claude-code-security-review@0c6a49f1fa56a1d472575da86a94dbc1edb78eda # main, pinned 2026-08-15
+        with:
+          claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+          comment-pr: true
+          upload-results: true
+          claude-model: ${{ inputs.claude-model }}
+          claudecode-timeout: 20
+          exclude-directories: ${{ inputs.exclude-directories }}
+          run-every-commit: false
+          # Resolved in the CALLER repo's checkout, so each repo keeps its own
+          # org-specific tuning files under .github/security/.
+          false-positive-filtering-instructions: .github/security/false-positive-instructions.md
+          custom-security-scan-instructions: .github/security/custom-scan-instructions.md
