@@ -24,6 +24,28 @@ name: Dependabot auto-merge (reusable)
 # Age is the signal that does not lag. The gate FAILS CLOSED: an unreachable
 # registry or a missing publish timestamp withholds auto-merge rather than
 # waving it through.
+#
+# Two modes, selected by the caller's trigger:
+#
+#   PR mode    (on: pull_request)  - the original path, unchanged. Evaluates the
+#                                    one PR in the event payload.
+#   SWEEP mode (on: schedule |
+#               workflow_dispatch) - re-runs auto-merge runs that WITHHELD.
+#
+# Why sweep mode exists. The cooldown withholds and exits SUCCESS: the job is
+# green, the log carries only a `::notice::Auto-merge withheld` line, and the PR
+# sits there mergeable. But PR mode only ever fires on `opened | synchronize |
+# reopened`, so a PR withheld on day 0 was never re-examined on day 8 - the
+# cooldown expired and nothing noticed. Observed 2026-08-27: 34 of 38 open PRs
+# org-wide were past cooldown, MERGEABLE/CLEAN, every check green, and stranded;
+# the oldest had been eligible for 26 days.
+#
+# Sweep mode deliberately re-runs the ORIGINAL run rather than re-implementing
+# the decision. Every policy - the age threshold, the patch/minor rule, the
+# merge method, the polling fallback - stays in exactly one place, and the
+# re-run recomputes `now` against the current clock. A second copy of the age
+# gate would be a second thing to keep correct, and the whole point of this file
+# is that the gate has one definition.
 
 on:
   workflow_call:
@@ -40,15 +62,26 @@ on:
         description: "Withhold auto-merge for npm versions published fewer than N days ago (supply-chain cooldown). 0 disables."
         type: number
         default: 7
+      sweep-max-prs:
+        description: "Sweep mode only: maximum open Dependabot PRs to re-examine in one pass"
+        type: number
+        default: 50
 
 permissions:
   contents: write
   pull-requests: write
+  # Sweep mode calls `gh run rerun`. Callers that enable sweep triggers must
+  # grant this too - a caller's `permissions:` block is the ceiling, so omitting
+  # it here would make the re-run 403 while everything else looked fine.
+  actions: write
 
 jobs:
   auto-merge:
     runs-on: ubuntu-latest
-    if: ${{ github.actor == 'dependabot[bot]' }}
+    # PR mode only. A scheduled run has no Dependabot actor, so this job would
+    # skip on the actor check alone; naming the event keeps the two modes
+    # readable side by side rather than implied.
+    if: ${{ github.event_name == 'pull_request' && github.actor == 'dependabot[bot]' }}
     steps:
       - name: Fetch Dependabot metadata
         id: meta
@@ -203,3 +236,81 @@ jobs:
             fi
             sleep 20
           done
+
+  # ── Sweep mode ─────────────────────────────────────────────────────────────
+  # Finds open Dependabot PRs whose auto-merge run has already completed and
+  # re-runs it. The re-run re-enters PR mode above with the original event
+  # payload and a fresh clock, so a cooldown that has since expired now passes
+  # and the PR merges through the normal path.
+  #
+  # Every pass re-runs every eligible PR rather than trying to predict which
+  # cooldowns expired. Predicting means parsing dependency metadata out of band
+  # and comparing it against the registry - a second implementation of the gate,
+  # able to disagree with the first. Re-running is idempotent: a PR still inside
+  # its cooldown simply withholds again, a merged PR closes and drops out, and
+  # the wasted cost is a ~30s job per PR per pass.
+  sweep:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'pull_request' }}
+    steps:
+      - name: Re-run withheld auto-merge runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAX_PRS: ${{ inputs.sweep-max-prs }}
+        run: |
+          set -uo pipefail
+
+          # `app/dependabot` is the author filter that matches the bot; the
+          # `dependabot[bot]` form gh reports in `.author.login` is not accepted
+          # as a --author value.
+          prs="$(gh pr list --repo "$REPO" --state open --author 'app/dependabot' \
+            --limit "$MAX_PRS" --json number,url,headRefOid,isDraft \
+            --jq '.[] | select(.isDraft | not) | [.number, .url, .headRefOid] | @tsv' \
+            2>/dev/null || true)"
+
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot PRs - nothing to sweep."
+            exit 0
+          fi
+
+          rerun=0
+          skipped=0
+
+          while IFS=$'\t' read -r num url sha; do
+            [ -n "${num:-}" ] || continue
+
+            # Match on the CURRENT head SHA, not the PR's first run: a rebased
+            # PR has a newer run, and re-running a superseded one would replay a
+            # stale payload.
+            run_id="$(gh api "repos/$REPO/actions/runs?head_sha=$sha&event=pull_request" \
+              --jq '[.workflow_runs[]
+                     | select(.name | startswith("Dependabot auto-merge"))]
+                    | sort_by(.created_at) | last | .id // empty' \
+              2>/dev/null || true)"
+
+            if [ -z "$run_id" ]; then
+              echo "#$num: no auto-merge run for $sha - skipping."
+              skipped=$(( skipped + 1 ))
+              continue
+            fi
+
+            status="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status' 2>/dev/null || echo unknown)"
+            if [ "$status" != "completed" ]; then
+              echo "#$num: run $run_id is '$status' - already working, skipping."
+              skipped=$(( skipped + 1 ))
+              continue
+            fi
+
+            if gh run rerun "$run_id" --repo "$REPO" >/dev/null 2>&1; then
+              echo "#$num: re-ran auto-merge run $run_id - $url"
+              rerun=$(( rerun + 1 ))
+            else
+              # Runs age out of Actions retention (90d by default); past that a
+              # re-run is impossible and the PR needs a human or a rebase.
+              echo "::warning::#$num: could not re-run $run_id (past retention?) - leaving for manual review: $url"
+              skipped=$(( skipped + 1 ))
+            fi
+          done <<< "$prs"
+
+          echo "::notice::Sweep complete - re-ran $rerun, skipped $skipped."
