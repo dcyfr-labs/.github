@@ -1,0 +1,122 @@
+name: Dependabot auto-merge sweep (reusable)
+
+# Re-runs Dependabot auto-merge runs that the supply-chain cooldown WITHHELD.
+#
+# Why this is a separate file from dependabot-auto-merge.yml:
+#
+# Sweep calls `gh run rerun`, which needs `actions: write`. A reusable workflow
+# may not request more permission than its caller grants, and that ceiling
+# applies to the WHOLE called workflow - an `if:`-false job does not opt out of
+# it. While sweep lived alongside PR mode, its `actions: write` made every
+# PR-mode call die at `startup_failure` before running a step (2026-08-31 to
+# 2026-09-05: 20 of 20 repos, 73 stranded PRs, no failing check to notice).
+# Keeping the two modes in separate files is what makes each one's declared
+# permissions match what its own callers actually grant.
+#
+# Why sweep exists at all. The cooldown withholds and exits SUCCESS: the job is
+# green, the log carries only a `::notice::Auto-merge withheld` line, and the PR
+# sits there mergeable. PR mode only ever fires on `opened | synchronize |
+# reopened`, so a PR withheld on day 0 is never re-examined on day 8 - the
+# cooldown expires and nothing notices. Observed 2026-08-27: 34 of 38 open PRs
+# org-wide were past cooldown, MERGEABLE/CLEAN, every check green, and stranded;
+# the oldest had been eligible for 26 days.
+#
+# Sweep deliberately re-runs the ORIGINAL run rather than re-implementing the
+# decision. Every policy - the age threshold, the patch/minor rule, the merge
+# method, the polling fallback - stays in exactly one place, and the re-run
+# recomputes `now` against the current clock. A second copy of the age gate
+# would be a second thing to keep correct.
+#
+# CALLER CONTRACT. A caller must trigger on `schedule` and/or
+# `workflow_dispatch` - never `pull_request` - and must grant all three
+# permissions below:
+#
+#   permissions:
+#     contents: write
+#     pull-requests: write
+#     actions: write
+#
+# A caller that grants less dies at `startup_failure`, which is silent: no
+# check and no annotation on the PR - so verify a new caller's FIRST run
+# actually reached a step, rather than trusting that nothing went red.
+
+on:
+  workflow_call:
+    inputs:
+      sweep-max-prs:
+        description: "Maximum open Dependabot PRs to re-examine in one pass"
+        type: number
+        default: 50
+
+permissions:
+  contents: write
+  pull-requests: write
+  # `gh run rerun`. This is the permission that must NOT appear in the PR-mode
+  # file - see the header.
+  actions: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-run withheld auto-merge runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          MAX_PRS: ${{ inputs.sweep-max-prs }}
+        run: |
+          set -uo pipefail
+
+          # `app/dependabot` is the author filter that matches the bot; the
+          # `dependabot[bot]` form gh reports in `.author.login` is not accepted
+          # as a --author value.
+          prs="$(gh pr list --repo "$REPO" --state open --author 'app/dependabot' \
+            --limit "$MAX_PRS" --json number,url,headRefOid,isDraft \
+            --jq '.[] | select(.isDraft | not) | [.number, .url, .headRefOid] | @tsv' \
+            2>/dev/null || true)"
+
+          if [ -z "$prs" ]; then
+            echo "No open Dependabot PRs - nothing to sweep."
+            exit 0
+          fi
+
+          rerun=0
+          skipped=0
+
+          while IFS=$'\t' read -r num url sha; do
+            [ -n "${num:-}" ] || continue
+
+            # Match on the CURRENT head SHA, not the PR's first run: a rebased
+            # PR has a newer run, and re-running a superseded one would replay a
+            # stale payload.
+            run_id="$(gh api "repos/$REPO/actions/runs?head_sha=$sha&event=pull_request" \
+              --jq '[.workflow_runs[]
+                     | select(.name | startswith("Dependabot auto-merge"))]
+                    | sort_by(.created_at) | last | .id // empty' \
+              2>/dev/null || true)"
+
+            if [ -z "$run_id" ]; then
+              echo "#$num: no auto-merge run for $sha - skipping."
+              skipped=$(( skipped + 1 ))
+              continue
+            fi
+
+            status="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status' 2>/dev/null || echo unknown)"
+            if [ "$status" != "completed" ]; then
+              echo "#$num: run $run_id is '$status' - already working, skipping."
+              skipped=$(( skipped + 1 ))
+              continue
+            fi
+
+            if gh run rerun "$run_id" --repo "$REPO" >/dev/null 2>&1; then
+              echo "#$num: re-ran auto-merge run $run_id - $url"
+              rerun=$(( rerun + 1 ))
+            else
+              # Runs age out of Actions retention (90d by default); past that a
+              # re-run is impossible and the PR needs a human or a rebase.
+              echo "::warning::#$num: could not re-run $run_id (past retention?) - leaving for manual review: $url"
+              skipped=$(( skipped + 1 ))
+            fi
+          done <<< "$prs"
+
+          echo "::notice::Sweep complete - re-ran $rerun, skipped $skipped."
