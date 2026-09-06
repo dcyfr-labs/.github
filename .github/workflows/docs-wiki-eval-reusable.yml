@@ -1,0 +1,153 @@
+# docs-wiki-eval — recompute every hard gate for a generated documentation PR.
+#
+# Published to dcyfr-labs/.github and called by each documented repository as
+#   uses: dcyfr-labs/.github/.github/workflows/docs-wiki-eval-reusable.yml@<sha>
+#
+# It lives in a public repository because most of the repositories it gates are
+# public, and a public runner cannot reach this workspace's validators. The
+# runner it executes is the same code the daemon runs, vendored byte for byte
+# and digested in MANIFEST.json.
+#
+# Callers pin by full commit SHA rather than by tag or branch. A branch name
+# resolves to whatever landed last, and a SHA on a squash-merged branch goes
+# dangling — the same reasoning as the security-review caller in dcyfr-ai.
+#
+# This file is the source of truth. dcyfr-labs/.github holds two copies: this
+# one under docgen-gate/workflows/, and the executable one under
+# .github/workflows/ that GitHub requires. The job's first step diffs them, so
+# the copy cannot silently become the real workflow.
+
+name: docs-wiki-eval
+
+on:
+  workflow_call:
+    inputs:
+      gate-ref:
+        description: >-
+          Commit SHA of dcyfr-labs/.github holding the gate runner. Must be the
+          same SHA as the `uses:` that called this workflow.
+        required: true
+        type: string
+      gate-version:
+        description: >-
+          Bundle version the pages were written against. The job fails if the
+          checked-out runner reports a different one, so a repository is gated
+          by the runner its daemon wrote for and not by whatever landed today.
+        required: true
+        type: string
+      base-sha:
+        description: Base commit for the diff. Defaults to the pull request base.
+        required: false
+        type: string
+        default: ''
+      head-sha:
+        description: Head commit to evaluate. Defaults to the checked-out ref.
+        required: false
+        type: string
+        default: ''
+      runs-on:
+        description: Runner label. Public repositories use ubuntu-latest.
+        required: false
+        type: string
+        default: ubuntu-latest
+      node-version:
+        required: false
+        type: string
+        default: '24'
+
+permissions:
+  contents: read
+
+jobs:
+  docs-wiki-eval:
+    name: docs-wiki-eval
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 20
+    steps:
+      # fetch-depth: 0 is load-bearing rather than cautious. Citations resolve
+      # against the commit each page records in `source_sha`, and that commit is
+      # usually older than a shallow clone reaches; without the full history the
+      # runner reports every citation as unresolvable.
+      - name: Check out the repository under evaluation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          path: repo
+          persist-credentials: false
+
+      - name: Check out the gate runner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dcyfr-labs/.github
+          ref: ${{ inputs.gate-ref }}
+          path: gate
+          persist-credentials: false
+
+      - name: Confirm the executable workflow matches the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          diff -u gate/docgen-gate/workflows/docs-wiki-eval-reusable.yml \
+                  gate/.github/workflows/docs-wiki-eval-reusable.yml
+
+      - name: Verify the gate runner against its manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          node gate/docgen-gate/eval.mjs --verify-bundle \
+            --expect-version "${{ inputs.gate-version }}"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      # --ignore-scripts because none of the three pins has a build step and a
+      # lifecycle script here would run with the runner's token in scope.
+      - name: Install the parsers the gates measure with
+        shell: bash
+        run: npm install --prefix gate/docgen-gate --no-audit --no-fund --ignore-scripts
+
+      # lychee is pinned to a release asset AND to the digest that asset had when
+      # the bundle was cut. The publisher's own checksum file is not a control by
+      # itself: whoever can replace the asset can replace the checksum beside it.
+      - name: Install lychee
+        shell: bash
+        env:
+          MANIFEST: gate/docgen-gate/MANIFEST.json
+        run: |
+          set -euo pipefail
+          release=$(jq -r '.lychee.release' "$MANIFEST")
+          asset=$(jq -r '.lychee.asset' "$MANIFEST")
+          want=$(jq -r '.lychee.sha256' "$MANIFEST")
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/$asset" \
+            "https://github.com/lycheeverse/lychee/releases/download/$release/$asset"
+          echo "$want  $RUNNER_TEMP/$asset" | sha256sum --check --strict -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/$asset" -C "$RUNNER_TEMP/bin" \
+            --strip-components=1 "${asset%.tar.gz}/lychee"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Recompute the hard gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          node gate/docgen-gate/eval.mjs \
+            --repo "$GITHUB_WORKSPACE/repo" \
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}" \
+            --expect-version "${{ inputs.gate-version }}" \
+            --json "$RUNNER_TEMP/docs-wiki-eval.json"
+        env:
+          BASE_SHA: ${{ inputs.base-sha || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ inputs.head-sha || github.event.pull_request.head.sha || github.sha }}
+
+      - name: Upload the gate record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs-wiki-eval
+          path: ${{ runner.temp }}/docs-wiki-eval.json
+          if-no-files-found: ignore
+          retention-days: 14

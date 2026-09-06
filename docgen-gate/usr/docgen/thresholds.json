@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "updated": "2026-09-05",
+  "rule": "Every number Scribe's gates, auto-merge rule, self-healing loops and vendor exit compare against. Split from registry.json on purpose: the registry says which repositories are in scope and who approved what, this file says how good a page has to be, and the two change for entirely different reasons. Nothing here is written at run time — a threshold moves only by PR, so a cycle can never lower the bar it failed. Checked by `npm run validate:docgen-registry`.",
+  "hard": {
+    "_": "Any failure blocks the page. Recomputed from the PR diff by the docs-wiki-eval CI job, which does not trust the daemon's own report.",
+    "citation_resolvability_min": 0.99,
+    "mermaid_parse_rate_min": 1.0,
+    "prose_errors_max": 0,
+    "markdownlint_errors_max": 0,
+    "broken_links_max": 0,
+    "page_bytes_max": 16384,
+    "plan_pages_max": 30,
+    "llms_full_bytes_max": 1048576
+  },
+  "soft": {
+    "_": "Scored, not fatal. A page below one of these still opens a PR; it just does not merge itself. judge_calibration_max_delta is the bar the local 14b judge has to clear against Haiku 4.5 on the golden pages before its score is allowed to fail anything; scripts/docgen/calibrate.mjs measures it and usr/docgen/calibration.json records the measurement.",
+    "citation_support_min": 0.8,
+    "citation_sample_per_page": 6,
+    "judge_page_min": 0.7,
+    "judge_mean_min": 0.8,
+    "judge_calibration_max_delta": 0.1,
+    "symbol_coverage_min": 0.5,
+    "symbol_coverage_deepwiki_baseline": 0.4,
+    "embedding_similarity_min": 0.65,
+    "embedding_similarity_max": 0.8,
+    "ask_regression_mean_min": 0.75,
+    "ask_regression_page_min": 0.5,
+    "ask_facts_per_answer": 5,
+    "regression_drop_max": 0.05
+  },
+  "automerge": {
+    "_": "Clauses 3 and 8 of the eight-condition rule in design.md section 6. The other six clauses are conditions rather than numbers and live in code.",
+    "max_pages_per_pr": 8,
+    "max_fraction_of_repo_pages": 0.3,
+    "merges_per_repo_per_day": 1,
+    "merges_per_fleet_per_day": 10
+  },
+  "exit": {
+    "_": "Task 4.1. A repository leaves the vendor only once it has proved it does not need the baseline any more.",
+    "green_merges_required": 3,
+    "ask_regression_min": 0.75
+  },
+  "loops": {
+    "_": "The self-healing constants from design.md section 8. Hours rather than cycles wherever a watchdog reads the value, because the daemon's schedule can change and a wall-clock ceiling cannot be quietly widened by rescheduling. pr_batch_interval_hours is the exception that is not about healing: a cycle that finds work waits this long since the repository's last docs:auto PR before opening another, so a fourteen-repository fleet does not put a PR gate on the single self-hosted runner every thirty minutes.",
+    "park_after_failed_cycles": 6,
+    "park_ttl_days": 7,
+    "canary_failures_to_pin_lane": 2,
+    "lane_pin_ttl_hours": 48,
+    "calibration_max_age_days": 90,
+    "silent_cycles_to_alert": 3,
+    "zero_work_cycles_to_alert": 3,
+    "pr_batch_interval_hours": 168,
+    "pr_stale_hours": 48,
+    "check_queued_hours": 6,
+    "lock_ttl_hours": 6,
+    "alert_cooldown_hours": 12,
+    "ask_cache_ttl_days": 7,
+    "replan_symbol_change_fraction": 0.2,
+    "page_max_age_days": 14
+  }
+}

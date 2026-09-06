@@ -1,0 +1,80 @@
+{
+  "bundle": "docgen-gate-runner",
+  "bundle_version": "0.1.0",
+  "generator_version": "0.1.0",
+  "built_by": "scripts/docgen/bundle-gate.mjs",
+  "_rule": "Generated. Rebuild with `node scripts/docgen/bundle-gate.mjs`; `--check` fails if any file here disagrees with the workspace source it was cut from. Vendored files are byte identical to the module the daemon runs, so a digest here is a digest of the running gate.",
+  "deny_list_id": ".aws/,.backups/,.ssh/",
+  "lychee": {
+    "release": "lychee-v0.24.2",
+    "asset": "lychee-x86_64-unknown-linux-gnu.tar.gz",
+    "sha256": "1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a"
+  },
+  "files": {
+    "README.md": {
+      "origin": "authored",
+      "bytes": 5903,
+      "sha256": "524a708a74918a841ea5afe2c6a24aeb94456b77dae9c02471710040da5ec74a"
+    },
+    "eval.mjs": {
+      "origin": "authored",
+      "bytes": 15605,
+      "sha256": "208cde9c21f19a3b082f307d13a251b54905923b4ff69ba9c9c49a1dca1b5659"
+    },
+    "package.json": {
+      "origin": "generated",
+      "bytes": 340,
+      "sha256": "e115ebf89ef327465e7b48c7b8f4eb9ba6fa03ef2e6b72177a7480015687c354"
+    },
+    "scripts/docgen/core.mjs": {
+      "origin": "vendored",
+      "bytes": 42421,
+      "sha256": "0040804289e38d3016e542d683c8ed2d3654396e5181307a8bcd63ab5b6ff83b"
+    },
+    "scripts/docgen/extract.mjs": {
+      "origin": "generated",
+      "bytes": 1102,
+      "sha256": "f8e4d4ee3f46a08229219f7d0fdf08ef7073d1a51622d6e401fd83b886fb7a26"
+    },
+    "scripts/docgen/gate.mjs": {
+      "origin": "vendored",
+      "bytes": 28443,
+      "sha256": "4bae68e07c0fa2a8eddd0de6125468d302da4b762b878ec31b20fbd35350e0a6"
+    },
+    "scripts/docgen/mermaid-check.mjs": {
+      "origin": "vendored",
+      "bytes": 4143,
+      "sha256": "b531ded81cf7b86834d344bf0fa4c49eb811a7c1ae19fcdd5ad8d5958fd5b979"
+    },
+    "scripts/docgen/restricted.mjs": {
+      "origin": "vendored",
+      "bytes": 4757,
+      "sha256": "3f820326828a99ecc6ed8cae5aba430337393205bc42b2b0a568233f1dc4551c"
+    },
+    "scripts/validate-prose.mjs": {
+      "origin": "vendored",
+      "bytes": 38047,
+      "sha256": "019a3fbe3fa9f85495d89a1c924262902ac46350a59edd6bb34a4a9a37b18e6d"
+    },
+    "usr/docgen/docgen.markdownlint-cli2.jsonc": {
+      "origin": "vendored",
+      "bytes": 1568,
+      "sha256": "872a7032e878d39060ce3ff32e22ab715d6b681e1b8f92e75e33f4215f550838"
+    },
+    "usr/docgen/thresholds.json": {
+      "origin": "vendored",
+      "bytes": 3290,
+      "sha256": "6fd472582ff827b9dd07f294c7b55deb8b51cfa1a540f81068ea380d6ab37245"
+    },
+    "usr/prose/prose-rules.json": {
+      "origin": "generated",
+      "bytes": 7655,
+      "sha256": "ee293a6ef0f5055dde4cabc6993718a9c7a5d766270cd93dbaad288046799733"
+    },
+    "workflows/docs-wiki-eval-reusable.yml": {
+      "origin": "authored",
+      "bytes": 6146,
+      "sha256": "74cc572f554ce57e13065290d09eac8167f88e934fc2857560b804230459b2ec"
+    }
+  }
+}

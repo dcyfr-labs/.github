@@ -1,0 +1,31 @@
+// markdownlint rules for generated wiki pages (task 1.4, hard gate H4).
+//
+// Shipped as a file rather than left to discovery on purpose. The gate lints a
+// candidate page in a temp directory, where markdownlint-cli2 finds no config
+// and falls back to its defaults; under those defaults two rules fire on every
+// page the generator can possibly write, so H4 could never pass and the gate
+// was decoration. Naming the config makes the exemptions deliberate and
+// reviewable instead of a property of the working directory.
+//
+// The filename is fixed by markdownlint-cli2: --config only accepts a
+// supported name or a prefix of one, so this cannot be called markdownlint.jsonc.
+//
+// The same file is vendored into the public gate runner, so the daemon and the
+// docs-wiki-eval CI job lint against identical rules.
+{
+  "config": {
+    // MD042 no-empty-links. The citation form is `[path:start-end]()` with an
+    // empty target: that is the DeepWiki-compatible shape the page contract
+    // specifies (design section 3), and it is what makes a citation resolvable
+    // by H2 rather than a link H5 has to chase. Every citation on every page
+    // trips this rule, so leaving it on would mean H4 rejecting the format H2
+    // requires.
+    "MD042": false,
+
+    // MD013 line-length. Generated pages are not hard-wrapped and a single
+    // citation runs 40 characters on its own. Page size is already bounded by
+    // H6 at 16 kB and cadence by the prose gate, so a column limit here adds
+    // no check and rejects every page.
+    "MD013": false
+  }
+}
