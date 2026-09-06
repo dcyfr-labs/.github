@@ -1,0 +1,179 @@
+{
+  "version": "1.0.0",
+  "_generated": "Projected from the workspace prose rules by scripts/docgen/bundle-gate.mjs. Global cadence rules plus the \"dcyfr\" voice and its inheritance chain, which is the only voice generated wiki pages are written in. The workspace surface map is not part of this projection; the runner names the voice explicitly with --voice.",
+  "global": {
+    "budgets": {
+      "emDashPer1kWords": {
+        "value": 1.5,
+        "severity": "error",
+        "why": "Drew's own writing samples measure 0.00/1k. Fleet-generated prose measured 5.7-7.5/1k on 2026-07-31. Good editorial prose sits near 1.0. This is a budget, not a ban: the dash is a legitimate device, it just cannot be the default connector."
+      },
+      "emDashPerSentence": {
+        "value": 1,
+        "severity": "error",
+        "why": "Two dashes in one sentence is the parenthetical-aside tic. Use commas, parens, or split the sentence."
+      },
+      "emDashPerParagraph": {
+        "value": 1,
+        "severity": "warn",
+        "why": "Back-to-back dashed sentences read as a drumbeat even when each one is individually defensible."
+      },
+      "meanSentenceWords": {
+        "min": 9,
+        "max": 24,
+        "severity": "warn",
+        "why": "Uniformly short punchy sentences are as much a tell as uniformly long ones. Real prose varies."
+      },
+      "singleSentenceParagraphRatio": {
+        "value": 0.4,
+        "severity": "warn",
+        "why": "The one-sentence-paragraph drumbeat is the strongest structural AI signature in 2026. Under 40% of paragraphs."
+      }
+    },
+    "rhythm": [
+      {
+        "id": "not-just-but",
+        "pattern": "\\b(?:not|isn'?t|aren'?t|wasn'?t|won'?t)\\s+just\\s+[^.!?;]{1,60}?\\s*(?:[,—-]\\s*)?(?:it'?s|they'?re|but)\\b",
+        "flags": "gi",
+        "severity": "error",
+        "message": "The \"not just X, but Y\" pivot. Say the thing you mean; drop the foil.",
+        "rewrite": "Delete the negated half. \"It's not just fast, it's reliable\" -> \"It's reliable.\""
+      },
+      {
+        "id": "its-not-x-its-y",
+        "pattern": "\\b(?:[Ii]t'?s|[Tt]his is|[Tt]hat'?s)\\s+not\\s+(?:about\\s+)?[^.!?\\n]{2,45}[.!]\\s+(?:It'?s|This is|That'?s)\\b",
+        "flags": "g",
+        "severity": "error",
+        "message": "The \"It's not X. It's Y.\" fragment pivot — pure LLM cadence.",
+        "rewrite": "State Y directly in one sentence.",
+        "_note": "Leading clause matches either case deliberately; the trailing clause must stay capitalised because it starts a sentence, so an 'i' flag on the whole rule would be wrong. Lowercase-only originally missed the commonest form of its own pattern: the one that OPENS a sentence."
+      },
+      {
+        "id": "dashed-negation",
+        "pattern": "\\u2014\\s*(?:not|never|no|and not)\\b",
+        "flags": "gi",
+        "severity": "error",
+        "message": "\"X — not Y\" dashed contrast. The single most recognizable generated-prose shape.",
+        "rewrite": "Split into two sentences, or cut the contrast entirely."
+      },
+      {
+        "id": "dashed-aside-stack",
+        "pattern": "\\u2014[^\\u2014\\n]{2,70}\\u2014",
+        "flags": "g",
+        "severity": "error",
+        "message": "Dashed aside \"A — B — C\". Use parentheses or commas.",
+        "rewrite": "( ) for a true aside, commas for an appositive."
+      },
+      {
+        "id": "rhetorical-question-fragment",
+        "pattern": "(?:^|\\n)\\s*(?:The (?:result|catch|problem|twist|kicker|point|reason|difference)|Why|The best part)\\?\\s",
+        "flags": "gm",
+        "severity": "error",
+        "message": "Rhetorical-question-then-answer fragment (\"The result?\"). Listicle filler.",
+        "rewrite": "Just state the result."
+      },
+      {
+        "id": "heres-the-thing",
+        "pattern": "(?:^|[.!?]\\s+|\\n)\\s*(?:But\\s+)?(?:[Hh]ere'?s the thing|[Hh]ere'?s the kicker|[Hh]ere'?s why|[Tt]he thing is)\\b",
+        "flags": "g",
+        "severity": "error",
+        "message": "Throat-clearing transition.",
+        "rewrite": "Delete it. The sentence after it is your real sentence.",
+        "_note": "Anchored to sentence start. Mid-sentence \"here's why\" is ordinary enumeration (\"here's what I observed, here's why, here's how to undo it\") and flagging it was a false positive."
+      },
+      {
+        "id": "triadic-escalation",
+        "pattern": "\\b\\w+,\\s+\\w+,\\s+and\\s+(?:more|most)\\s+\\w+\\b",
+        "flags": "gi",
+        "severity": "warn",
+        "message": "Rule-of-three comparative escalation (\"faster, cleaner, and more reliable\").",
+        "rewrite": "Pick the one that's true and prove it.",
+        "_note": "Deliberately narrow. Matching any three-item list produced 1502 hits that were almost entirely ordinary English ('development, staging, and production'). The diagnostic signature is the more/most escalation in the third slot, not the list itself."
+      },
+      {
+        "id": "at-its-core",
+        "pattern": "\\b(?:at its core|under the hood|at the end of the day|when it comes to|in essence|fundamentally,)\\b",
+        "flags": "gi",
+        "severity": "warn",
+        "message": "Filler framing phrase.",
+        "rewrite": "Cut. Start at the noun."
+      },
+      {
+        "id": "participial-opener-chain",
+        "pattern": "(?:^|\\n)\\s*(?:Built|Designed|Powered|Backed|Engineered|Crafted|Optimi[sz]ed)\\s+(?:for|to|by|with)\\b",
+        "flags": "gm",
+        "severity": "warn",
+        "message": "Marketing participial opener (\"Built for scale,\").",
+        "rewrite": "Lead with the subject doing the thing."
+      },
+      {
+        "id": "hedge-stack",
+        "pattern": "\\b(?:it'?s worth noting|it'?s important to (?:note|remember)|that said,|while it'?s true that|arguably)\\b",
+        "flags": "gi",
+        "severity": "warn",
+        "message": "Hedging scaffold.",
+        "rewrite": "Assert it or drop it."
+      },
+      {
+        "id": "empty-superlative",
+        "pattern": "\\b(?:seamless(?:ly)?|robust(?!\\s+to\\b)|revolutionary|game-chang\\w+|best-in-class|world-class|cutting-edge|state-of-the-art|next-generation|unparalleled|effortless(?:ly)?)\\b",
+        "flags": "gi",
+        "severity": "error",
+        "message": "Empty superlative / corporate filler.",
+        "rewrite": "Replace with the measured fact.",
+        "_note": "\"robust to X\" is exempt: robustness to an input is a real technical property, unlike \"a robust solution\", which is filler."
+      },
+      {
+        "id": "delve-lexicon",
+        "pattern": "\\b(?:delve|tapestry|realm of|landscape of|testament to|beacon of|treasure trove|navigate the complexit\\w+|unlock the (?:power|potential))\\b",
+        "flags": "gi",
+        "severity": "error",
+        "message": "Canonical LLM vocabulary.",
+        "rewrite": "Say it plainly."
+      },
+      {
+        "id": "minimizer",
+        "pattern": "\\b(?:just|simply|merely|obviously|of course)\\b",
+        "flags": "gi",
+        "severity": "warn",
+        "message": "Minimizer — weakens the line and can condescend.",
+        "rewrite": "Delete the word; the sentence survives."
+      }
+    ]
+  },
+  "voices": {
+    "dcyfr": {
+      "inherits": "drew",
+      "budgets": {
+        "emDashPer1kWords": {
+          "value": 1
+        }
+      }
+    },
+    "drew": {
+      "budgets": {
+        "emDashPer1kWords": {
+          "value": 0.8
+        }
+      }
+    }
+  },
+  "surfaces": [
+    {
+      "match": [
+        "**/*"
+      ],
+      "voice": "dcyfr"
+    }
+  ],
+  "include": [
+    "**/*.md",
+    "**/*.mdx",
+    "**/*.tsx",
+    "**/*.ts",
+    "**/*.html"
+  ],
+  "exclude": [
+    "**/node_modules/**"
+  ]
+}
