@@ -332,15 +332,31 @@ export function proseErrorCount(root, markdown, { dir = tmpdir(), voice = PAGE_P
 }
 
 /**
- * markdownlint-cli2 error count, or null when the binary is absent.
+ * markdownlint-cli2 error count, or null when the page was not measured.
  *
  * Two things here are load-bearing. The config is named rather than
  * discovered: cli2 looks for one beside the file it lints, the file is in a
  * temp directory, and under the defaults MD042 fires on every citation and
  * MD013 on most lines, so H4 could never pass. And the count is read from the
- * `Summary: N error(s)` line on stdout, because cli2 writes its findings to
- * stderr — counting stdout lines returned zero for a page with errors, which
- * is the same silent pass the header of this file warns about.
+ * `Summary:` line on stdout, because cli2 writes its findings to stderr —
+ * counting stdout lines returned zero for a page with errors, which is the
+ * same silent pass the header of this file warns about.
+ *
+ * The summary wording is version-dependent and both spellings are accepted:
+ * cli2 ≤0.18 writes `Summary: 2 error(s)`, ≥0.23 writes `Summary: 2 issues in
+ * 1 file`. Matching only the older one did not fail loudly, which is what made
+ * it worth pinning in a test: the count stopped parsing, and a clean page
+ * still returned 0 while any page with findings came back unmeasured. H4 kept
+ * its verdicts by luck rather than measurement.
+ *
+ * A count is returned only when cli2 makes BOTH of the claims it has to make —
+ * that it linted this one page, and how many findings that page had. The
+ * `Linting:` line is the first of those and is not a formality: cli2 treats its
+ * arguments as globs, and a path it resolves to nothing is not an error to it.
+ * It prints `Linting: 0 files`, `Summary: 0 issues in 0 files`, and exits 0.
+ * Reading the count alone turns that into a clean page — a page nobody linted,
+ * recorded as measured and passing, with nothing anywhere going red. A path
+ * containing parentheses is enough to produce it under 0.23.2.
  */
 export function markdownlintErrorCount(markdown, { dir = tmpdir(), root = process.cwd(), config } = {}) {
   const bin = resolveBin(root, 'markdownlint-cli2');
@@ -350,12 +366,14 @@ export function markdownlintErrorCount(markdown, { dir = tmpdir(), root = proces
   const file = join(tmp, 'page.md');
   try {
     writeFileSync(file, markdown, 'utf8');
-    const res = runQuiet(bin, ['--config', rules, file]);
-    const summary = String(res.out ?? '').match(/Summary:\s+(\d+)\s+error/);
-    if (summary) return Number(summary[1]);
-    // No summary line means cli2 did not lint: a bad config path, or a version
-    // whose output shape changed. Either way the page was not checked.
-    return res.ok && /Linting:\s+1 file/.test(String(res.out ?? '')) ? 0 : null;
+    const out = String(runQuiet(bin, ['--config', rules, file]).out ?? '');
+    // Did it lint this page? A bad config path, a crash, or a glob that matched
+    // nothing all fail here, and none of them may return a number.
+    if (!/^Linting:\s+1 file/m.test(out)) return null;
+    // How many findings? An unreadable summary is a version whose output shape
+    // moved again, and is unmeasured rather than rounded down to zero.
+    const summary = out.match(/^Summary:\s+(\d+)\s+(?:error|issue)/m);
+    return summary ? Number(summary[1]) : null;
   } finally {
     rmSync(tmp, { recursive: true, force: true });
   }
