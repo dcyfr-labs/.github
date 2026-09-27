@@ -1,6 +1,6 @@
 {
   "bundle": "docgen-gate-runner",
-  "bundle_version": "0.3.0",
+  "bundle_version": "0.3.1",
   "generator_version": "0.1.0",
   "built_by": "scripts/docgen/bundle-gate.mjs",
   "_rule": "Generated. Rebuild with `node scripts/docgen/bundle-gate.mjs`; `--check` fails if any file here disagrees with the workspace source it was cut from. Vendored files are byte identical to the module the daemon runs, so a digest here is a digest of the running gate.",
@@ -24,7 +24,7 @@
     "package.json": {
       "origin": "generated",
       "bytes": 367,
-      "sha256": "6461b6177fa394b25fa2cb5c152a5d91e536232769550f9c633b6e71cb04c725"
+      "sha256": "6a6746c758e7668d147f71b4a2949adc06a1ccf88d821697f3ff82e1232182f6"
     },
     "scripts/docgen/core.mjs": {
       "origin": "vendored",
@@ -38,8 +38,8 @@
     },
     "scripts/docgen/gate.mjs": {
       "origin": "vendored",
-      "bytes": 30832,
-      "sha256": "9188efe49ba42e322f192a6e0d635e67f7529bffab0add5288461f9299d6e59c"
+      "bytes": 31240,
+      "sha256": "ef0a4f242da1956c8a77e2701bd237abc715b788046a7c4eb0d14e2dea98cfd4"
     },
     "scripts/docgen/mermaid-check.mjs": {
       "origin": "vendored",
