@@ -436,8 +436,35 @@ function ruleRe(r) {
   return re;
 }
 
+// Byline override: a post's frontmatter `authors` can select a voice within a
+// surface. The blog shares one path for every author, so the path alone cannot
+// tell a DCYFR-only column from Drew's own post. A rule matches only when the
+// author set is exactly equal, so joint bylines keep the surface voice.
+function bylineAuthors(src) {
+  const fm = /^---\n([\s\S]*?)\n---\n/.exec(src);
+  if (!fm) return null;
+  const line = /^authors:\s*\[([^\]]*)\]\s*$/m.exec(fm[1]);
+  if (!line) return null;
+  return line[1].split(',').map((a) => a.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean).sort();
+}
+
+function resolveVoiceFor(relPath, src) {
+  const base = resolveVoice(relPath);
+  if (FORCED_VOICE !== null || !base) return base;
+  const rules = RULES.bylineVoices || [];
+  if (!rules.length) return base;
+  const authors = bylineAuthors(src);
+  if (!authors) return base;
+  for (const r of rules) {
+    const want = [...(r.authors || [])].sort();
+    if ((r.within || []).includes(base) && want.length === authors.length &&
+        want.every((a, i) => a === authors[i]) && RULES.voices?.[r.voice]) return r.voice;
+  }
+  return base;
+}
+
 function analyze(relPath, src) {
-  const cfg = effectiveConfig(resolveVoice(relPath));
+  const cfg = effectiveConfig(resolveVoiceFor(relPath, src));
   const segs = extract(relPath, src);
   if (!segs.length) return { findings: [], words: 0, dashes: 0, voiceId: cfg.voiceId };
 

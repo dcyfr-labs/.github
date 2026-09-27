@@ -1,6 +1,6 @@
 {
   "name": "docgen-gate-runner",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Recomputes the rei-doc-specialist hard gates inside a documented repository.",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "jsdom": "30.0.1",
-    "markdownlint-cli2": "0.23.2",
-    "mermaid": "11.17.2"
+    "markdownlint-cli2": "0.23.3",
+    "mermaid": "12.0.0"
   }
 }

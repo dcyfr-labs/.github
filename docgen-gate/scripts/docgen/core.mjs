@@ -626,9 +626,16 @@ export function evaluateHardGates(measurements, thresholds) {
     failures.push({ gate: 'H1', key: 'restricted_paths', value: restricted, reason: `page names restricted paths: ${restricted.join(', ')}` });
   }
 
+  // A page with no citations and a page whose citations all failed both measure
+  // 0, and only the first tells a repair pass what to do about it. The
+  // production log carried nine `citation_resolvability 0 below 0.99` lines that
+  // read as a resolution problem and were an empty-page problem throughout.
   const resolvability = num('citation_resolvability');
+  const citationCount = num('citation_count');
   need('H2', 'citation_resolvability', resolvability, resolvability >= t.citation_resolvability_min,
-    `${resolvability} below ${t.citation_resolvability_min}`);
+    citationCount === 0
+      ? 'the page carries no citations at all; every factual claim needs one in the form [path:start-end]()'
+      : `${resolvability} below ${t.citation_resolvability_min}`);
 
   const mermaid = num('mermaid_parse_rate');
   need('H3', 'mermaid_parse_rate', mermaid, mermaid >= t.mermaid_parse_rate_min,
@@ -884,6 +891,13 @@ export function cycleRecord({ startedAt, endedAt, repos = [], disabled = false, 
       prs_merged: r.prsMerged ?? 0,
       hard_gate_failures: r.hardGateFailures ?? 0,
       lane: r.lane ?? null,
+      // Every caller already sets a reason and this row dropped it, so a
+      // repository that faulted recorded `source_sha: null, lane: null` and
+      // nothing about why. That row is the only per-repository trace a cycle
+      // leaves, and the question asked of it is always "why did this one do no
+      // work".
+      reason: r.reason ?? (r.fault ? 'faulted' : null),
+      fault: Boolean(r.fault),
     })),
     oldest_docs_auto_pr_hours: repos.reduce((max, r) => Math.max(max, r.openPrAgeHours ?? 0), 0),
   };
