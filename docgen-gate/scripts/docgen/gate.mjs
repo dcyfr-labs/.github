@@ -93,10 +93,16 @@ export function scanSecrets(text) {
     // path being skipped: skipping let `../config/.env.production` and
     // `../keys/id_rsa.pem` through H1 when the same files without the `../`
     // were findings, so one prefix hid anything this check exists to catch.
+    //
+    // Empty segments are dropped with `.`: a bare climb with a trailing slash
+    // (`../../`, a link to a parent directory) otherwise lands on `['']`, and
+    // `isRestrictedPath('')` is true, so dcyfr-ai's plugin guide failed H1 over
+    // a link that names nothing. A trailing slash costs no finding: the prefix
+    // check matches `knowledge-base` as well as `knowledge-base/`.
     const landed = [];
     for (const seg of path.split('/')) {
       if (seg === '..') landed.pop();
-      else if (seg !== '.') landed.push(seg);
+      else if (seg !== '.' && seg !== '') landed.push(seg);
     }
     if (landed.length && isRestrictedPath(landed.join('/'))) restricted.add(path);
   }
