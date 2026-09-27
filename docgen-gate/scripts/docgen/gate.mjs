@@ -82,7 +82,23 @@ export function scanSecrets(text) {
     // report `knowledge-base/notes.md.` as the restricted path, and the same file
     // named twice in one page would land in the set as two different findings.
     const path = m[0].replace(/\.+$/, '');
-    if (path && isRestrictedPath(path)) restricted.add(path);
+    // A relative import quoted in prose is not a path into a restricted tree.
+    // `isRestrictedPath` calls any `..` segment restricted, which is right for a
+    // path out of an extract — there it is traversal — and wrong here: page 2 of
+    // dcyfr-ai failed H1 naming `../agent-loader.js`, which reads in the log as
+    // the incident this gate exists for (a private path in a public page) and
+    // was a line of TypeScript all along.
+    //
+    // So the climb is dropped and what it lands on is judged, rather than the
+    // path being skipped: skipping let `../config/.env.production` and
+    // `../keys/id_rsa.pem` through H1 when the same files without the `../`
+    // were findings, so one prefix hid anything this check exists to catch.
+    const landed = [];
+    for (const seg of path.split('/')) {
+      if (seg === '..') landed.pop();
+      else if (seg !== '.') landed.push(seg);
+    }
+    if (landed.length && isRestrictedPath(landed.join('/'))) restricted.add(path);
   }
   return { findings, restricted: [...restricted].sort(byCodeUnit) };
 }
@@ -238,6 +254,10 @@ export function measurePage({
     secret_findings: secrets.findings.length,
     restricted_paths: secrets.restricted,
     citation_resolvability: citations.rate,
+    // Carried beside the rate because 0 means two different things — a page that
+    // cited nothing and a page whose every citation was wrong — and only the
+    // first is worth telling a repair pass about.
+    citation_count: citations.total,
     page_bytes: Buffer.byteLength(markdown, 'utf8'),
     plan_pages: (plan.pages ?? []).length,
     changed_paths: changedPaths,
