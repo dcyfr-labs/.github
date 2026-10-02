@@ -44,6 +44,15 @@ name: Dependabot auto-merge (reusable)
 #
 # Adding a permission here is therefore a BREAKING change to every caller. If a
 # future step needs one, give it its own file rather than widening this one.
+#
+# MANUAL REVIEW HAND-OFF. A PR this workflow will not merge used to be left with
+# no signal at all: no assignee, no label, nothing in anyone's queue. The last
+# step now assigns `review-assignee` and applies `review-label` when a human is
+# needed: a major or unclassified bump, failed or cancelled checks, a polling
+# timeout, or an auto-merge step that errored. Age-cooldown withholds are NOT
+# handed off, because sweep merges those once the cooldown expires. Assignment
+# and labelling need only `pull-requests: write`, which every caller already
+# grants, and the step never fails the job.
 
 on:
   workflow_call:
@@ -60,6 +69,14 @@ on:
         description: "Withhold auto-merge for npm versions published fewer than N days ago (supply-chain cooldown). 0 disables."
         type: number
         default: 7
+      review-assignee:
+        description: "GitHub login assigned to PRs left for manual review. Empty disables assignment."
+        type: string
+        default: dcyfr
+      review-label:
+        description: "Label applied to PRs left for manual review (created on first use). Empty disables labelling."
+        type: string
+        default: needs-review
 
 permissions:
   contents: write
@@ -167,6 +184,7 @@ jobs:
           fi
 
       - name: Approve and auto-merge (patch/minor only)
+        id: merge
         if: ${{ (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor') && steps.age.outputs.ok == 'true' }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -212,6 +230,7 @@ jobs:
             if [ -n "$buckets" ]; then
               if grep -qE '^(fail|cancel)$' <<<"$buckets"; then
                 echo "::notice::Required checks failed or were cancelled - leaving PR for manual review."
+                echo "review=checks failed or were cancelled" >> "$GITHUB_OUTPUT"
                 exit 0
               fi
               if ! grep -q '^pending$' <<<"$buckets"; then
@@ -222,7 +241,60 @@ jobs:
             fi
             if [ "$(date +%s)" -ge "$deadline" ]; then
               echo "::notice::Timed out waiting for checks - leaving PR for manual review."
+              echo "review=timed out waiting for checks" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             sleep 20
           done
+
+      # Hand a PR this run will not merge to a human. Runs after a failed merge
+      # step too (`!cancelled()`), since a merge that errored also strands the
+      # PR. Every call is non-fatal: this step must never turn a green run red.
+      - name: Assign for manual review
+        if: ${{ !cancelled() && (inputs.review-assignee != '' || inputs.review-label != '') && ((steps.meta.outputs.update-type != 'version-update:semver-patch' && steps.meta.outputs.update-type != 'version-update:semver-minor') || steps.merge.outputs.review != '' || steps.merge.outcome == 'failure') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ASSIGNEE: ${{ inputs.review-assignee }}
+          LABEL: ${{ inputs.review-label }}
+          UPDATE_TYPE: ${{ steps.meta.outputs.update-type }}
+          MERGE_REVIEW: ${{ steps.merge.outputs.review }}
+          MERGE_OUTCOME: ${{ steps.merge.outcome }}
+        run: |
+          set -uo pipefail
+
+          case "$UPDATE_TYPE" in
+            version-update:semver-patch|version-update:semver-minor)
+              if [ "$MERGE_OUTCOME" = "failure" ]; then
+                reason="auto-merge step failed"
+              else
+                reason="$MERGE_REVIEW"
+              fi ;;
+            version-update:semver-major) reason="major version bump" ;;
+            *) reason="unclassified update type '${UPDATE_TYPE:-none}'" ;;
+          esac
+
+          # Adding an assignee or label that is already present is a no-op, so
+          # synchronize/reopened re-runs are safe. A login without push access
+          # is silently ignored by the API, not rejected.
+          issue="repos/${REPO}/issues/${PR_NUMBER}"
+          if [ -n "$ASSIGNEE" ]; then
+            if gh api -X POST "${issue}/assignees" -f "assignees[]=${ASSIGNEE}" --silent; then
+              echo "Assigned ${ASSIGNEE}."
+            else
+              echo "::warning::Could not assign ${ASSIGNEE} (non-fatal)."
+            fi
+          fi
+          if [ -n "$LABEL" ]; then
+            # First use in a repo creates the label; 422 (already exists) is expected after that.
+            gh api -X POST "repos/${REPO}/labels" -f name="$LABEL" -f color=d93f0b \
+              -f description="Dependabot PR that auto-merge left for a human" --silent >/dev/null 2>&1 || true
+            if gh api -X POST "${issue}/labels" -f "labels[]=${LABEL}" --silent; then
+              echo "Labelled ${LABEL}."
+            else
+              echo "::warning::Could not apply label ${LABEL} (non-fatal)."
+            fi
+          fi
+          echo "::notice::Left for manual review: ${reason}."
+          exit 0

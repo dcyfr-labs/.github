@@ -63,3 +63,22 @@ Three things bite if you shortcut this:
 
 Sweep mode is safe to run on any cadence: a PR still inside its cooldown simply
 withholds again, and a merged PR drops out of the list.
+
+### Dependabot auto-merge: manual review hand-off
+
+A PR that PR mode will not merge is assigned to `review-assignee` (default
+`dcyfr`) and labelled `review-label` (default `needs-review`, created on first
+use). That covers major or unclassified bumps, failed or cancelled checks, a
+polling timeout, and an errored merge step. Age-cooldown withholds are not
+assigned, because sweep merges them once the cooldown expires.
+
+Find them org-wide with
+`is:pr is:open assignee:dcyfr label:needs-review org:dcyfr-labs`, or GitHub's
+"Assigned to you" filter. Pass either input as `''` to switch that half off
+for one caller:
+
+```yaml
+    uses: dcyfr-labs/.github/.github/workflows/dependabot-auto-merge.yml@main
+    with:
+      review-assignee: ''
+```
