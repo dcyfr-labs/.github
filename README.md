@@ -3,6 +3,10 @@
 Org-level defaults for **dcyfr-labs**: the profile README, and the reusable
 workflows every repo calls instead of keeping its own copy.
 
+It also holds the default [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), which
+every dcyfr-labs repository without its own file inherits. Do not add
+per-repo copies.
+
 ## Reusable workflows
 
 | Workflow | Purpose |
