@@ -3,16 +3,29 @@ name: Dependabot auto-merge (reusable)
 # Centralized auto-merge for Dependabot patch/minor bumps across dcyfr-labs repos.
 # Major bumps are never auto-merged - they stay open for manual review.
 #
-# Strategy, in order:
-#   1. Native auto-merge (gh pr merge --auto): for repos whose default branch
-#      has required status checks (ruleset/branch protection) and the
-#      "Allow auto-merge" repo setting. GitHub merges server-side once all
-#      REQUIRED checks pass - optional/flaky checks (visual snapshots, Vercel
-#      previews, secret-gated scanners that fail on Dependabot-triggered runs)
-#      cannot block the merge, and no runner is held while waiting.
+# Strategy. First count the status checks the base branch REQUIRES (rulesets
+# plus classic branch protection; a lookup that errors counts as none).
+#
+# Base branch REQUIRES checks, in order:
+#   1. Native auto-merge (gh pr merge --auto), with the "Allow auto-merge" repo
+#      setting. GitHub merges server-side once all REQUIRED checks pass -
+#      optional/flaky checks (visual snapshots, Vercel previews, secret-gated
+#      scanners that fail on Dependabot-triggered runs) cannot block the merge,
+#      and no runner is held while waiting.
 #   2. "Clean status" rejection means everything is already green: merge directly.
-#   3. Polling fallback for repos without usable branch protection (private
-#      repos on the GitHub Free org plan): wait for ALL checks, then merge.
+#   3. Polling fallback when native auto-merge is unavailable (repo setting
+#      off): wait for ALL checks, then merge.
+#
+# Base branch requires NO checks (private repos on the GitHub Free org plan,
+# where rulesets are unavailable, or a public repo with none configured):
+#   Never arm native auto-merge. With nothing required, GitHub treats the PR as
+#   mergeable at once and `gh pr merge --auto` merges it on the spot, before CI
+#   has started (dcyfr-labs#957-#965, 2026-10-02). Instead look at the checks
+#   ONCE: all finished and green merges, any failed or cancelled hands off, and
+#   anything still running withholds. No polling, because a waiting job bills
+#   Actions minutes on a private repo for the whole length of CI. A withheld PR
+#   is merged by dependabot-auto-merge-sweep.yml, so a repo on this path NEEDS
+#   a sweep caller, or its patch/minor PRs never merge.
 #
 # Called by each repo's thin .github/workflows/dependabot-auto-merge.yml caller.
 #
@@ -49,8 +62,9 @@ name: Dependabot auto-merge (reusable)
 # no signal at all: no assignee, no label, nothing in anyone's queue. The last
 # step now assigns `review-assignee` and applies `review-label` when a human is
 # needed: a major or unclassified bump, failed or cancelled checks, a polling
-# timeout, or an auto-merge step that errored. Age-cooldown withholds are NOT
-# handed off, because sweep merges those once the cooldown expires. Assignment
+# timeout, or an auto-merge step that errored. Age-cooldown withholds and
+# CI-still-running withholds (no required checks) are NOT handed off, because
+# sweep merges those once the cooldown expires or CI goes green. Assignment
 # and labelling need only `pull-requests: write`, which every caller already
 # grants, and the step never fails the job.
 
@@ -189,6 +203,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           MERGE_METHOD: ${{ inputs.merge-method }}
           TIMEOUT_MIN: ${{ inputs.timeout-minutes }}
         run: |
@@ -202,9 +218,60 @@ jobs:
             *" true")  echo "Native auto-merge already armed - nothing to do."; exit 0 ;;
           esac
 
+          # Bucket of every check on the PR EXCEPT this auto-merge workflow's own
+          # (prefix-matched so it works whether GitHub attributes the check to the
+          # caller or the reusable name), one per line. gh pr checks aggregates BOTH
+          # Actions check-runs AND commit statuses (e.g. SonarCloud quality gate,
+          # Socket Security). bucket in pass|fail|pending|skipping|cancel.
+          check_buckets() {
+            gh pr checks "$PR_URL" --json name,bucket,workflow \
+              --jq '.[] | select((.workflow // "") | startswith("Dependabot auto-merge") | not) | .bucket' 2>/dev/null || true
+          }
+
+          # How many status checks does the base branch REQUIRE? Rulesets and
+          # classic branch protection both count. A lookup that fails counts as
+          # none, which is the safe direction: the rules endpoint answers 403 on
+          # private repos on the Free plan, and `gh api` prints that error body to
+          # stdout, so only a zero exit status is trusted.
+          required=0
+          for lookup in \
+            "repos/${REPO}/rules/branches/${BASE_REF}|[.[] | select(.type == \"required_status_checks\")] | length" \
+            "repos/${REPO}/branches/${BASE_REF}|(.protection.required_status_checks.contexts // []) | length"; do
+            if n="$(gh api "${lookup%%|*}" --jq "${lookup#*|}" 2>/dev/null)"; then
+              case "$n" in ''|*[!0-9]*) n=0 ;; esac
+              required=$(( required + n ))
+            fi
+          done
+
+          # NO REQUIRED CHECKS: never arm native auto-merge. With nothing to wait
+          # for, `gh pr merge --auto` merges on the spot, before CI has even
+          # started (dcyfr-labs#957-#965 merged with Test still queued,
+          # 2026-10-02). Take one look at the PR's checks instead, and do NOT poll:
+          # a polling job bills Actions minutes on a private repo for as long as
+          # CI takes (24-70 min on dcyfr-labs), which would cost more than the
+          # org's whole monthly allowance. A run that finds CI still going
+          # withholds, exactly like the age cooldown, and sweep re-runs it later.
+          if [ "$required" -eq 0 ]; then
+            echo "No required status checks on '${BASE_REF}' - merging only on finished, green CI."
+            buckets="$(check_buckets)"
+            if grep -qE '^(fail|cancel)$' <<<"$buckets"; then
+              echo "::notice::Checks failed or were cancelled - leaving PR for manual review."
+              echo "review=checks failed or were cancelled" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ -n "$buckets" ] && ! grep -q '^pending$' <<<"$buckets"; then
+              gh pr review --approve "$PR_URL" || echo "approve skipped (non-fatal)"
+              echo "All checks finished green - merging ($MERGE_METHOD)."
+              gh pr merge --"$MERGE_METHOD" "$PR_URL"
+              exit 0
+            fi
+            echo "::notice::Auto-merge withheld until CI finishes: '${BASE_REF}' has no required checks, so arming auto-merge would merge before CI. The sweep re-runs this and merges once every check is green."
+            exit 0
+          fi
+
           gh pr review --approve "$PR_URL" || echo "approve skipped (non-fatal)"
 
-          # 1) Native auto-merge: requires required checks on the base branch.
+          # 1) Native auto-merge: GitHub merges once the required checks pass.
           if out="$(gh pr merge --auto --"$MERGE_METHOD" "$PR_URL" 2>&1)"; then
             echo "Native auto-merge armed - GitHub merges once required checks pass."
             exit 0
@@ -217,16 +284,12 @@ jobs:
             exit 0
           fi
 
-          # 3) Polling fallback (no usable branch protection on this repo).
+          # 3) Polling fallback: checks are required but native auto-merge is
+          #    unavailable (e.g. the "Allow auto-merge" repo setting is off).
           echo "Native auto-merge unavailable - falling back to check polling."
           deadline=$(( $(date +%s) + TIMEOUT_MIN * 60 ))
           while :; do
-            # All checks on the PR EXCEPT this auto-merge workflow's own (prefix-matched so it
-            # works whether GitHub attributes the check to the caller or the reusable name).
-            # gh pr checks aggregates BOTH Actions check-runs AND commit statuses (e.g. SonarCloud
-            # quality gate, Socket Security). bucket in pass|fail|pending|skipping|cancel.
-            buckets="$(gh pr checks "$PR_URL" --json name,bucket,workflow \
-              --jq '.[] | select((.workflow // "") | startswith("Dependabot auto-merge") | not) | .bucket' 2>/dev/null || true)"
+            buckets="$(check_buckets)"
             if [ -n "$buckets" ]; then
               if grep -qE '^(fail|cancel)$' <<<"$buckets"; then
                 echo "::notice::Required checks failed or were cancelled - leaving PR for manual review."

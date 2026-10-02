@@ -1,6 +1,9 @@
 name: Dependabot auto-merge sweep (reusable)
 
-# Re-runs Dependabot auto-merge runs that the supply-chain cooldown WITHHELD.
+# Re-runs Dependabot auto-merge runs that WITHHELD: the supply-chain cooldown,
+# and, on a base branch with no required checks, CI that was still running when
+# PR mode looked. On such a branch sweep is the ONLY thing that merges a
+# patch/minor PR, so every repo without required checks needs a sweep caller.
 #
 # Why this is a separate file from dependabot-auto-merge.yml:
 #
