@@ -113,6 +113,13 @@ polling timeout, and an errored merge step. Withholds are not assigned (the
 age cooldown, or CI still running on a branch with no required checks),
 because sweep merges them later.
 
+Merge races are not handed off either. Sweep re-runs withheld PRs back to
+back, so one merge can move the base under the next. "Base branch was
+modified" is retried up to three times. A merge conflict against a base commit
+less than an hour old is withheld, because Dependabot rebases conflicting PRs
+itself and the rebase re-runs PR mode. A conflict is assigned only once the
+base is an hour old and Dependabot still has not rebased.
+
 Find them org-wide with
 `is:pr is:open assignee:dcyfr label:needs-review org:dcyfr-labs`, or GitHub's
 "Assigned to you" filter. Pass either input as `''` to switch that half off

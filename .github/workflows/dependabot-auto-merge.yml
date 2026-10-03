@@ -67,6 +67,17 @@ name: Dependabot auto-merge (reusable)
 # sweep merges those once the cooldown expires or CI goes green. Assignment
 # and labelling need only `pull-requests: write`, which every caller already
 # grants, and the step never fails the job.
+#
+# MERGE RACES ARE NOT HANDED OFF. Sweep re-runs every withheld PR in a repo
+# back to back, so their merges race each other. The loser sees "Base branch
+# was modified", and a lockfile-sharing loser then sees "merge conflicts".
+# Those used to fail the step and hand the PR to a human (2026-10-02: four
+# PRs assigned and labelled, all of which merged untouched after Dependabot
+# rebased them). A "Base branch was modified" merge is now retried. A conflict
+# against a base commit under an hour old is withheld, because Dependabot
+# rebases a conflicting PR on its own and that rebase's `synchronize` re-runs
+# this job. Only a conflict Dependabot has left alone for an hour is handed
+# off.
 
 on:
   workflow_call:
@@ -228,6 +239,68 @@ jobs:
               --jq '.[] | select((.workflow // "") | startswith("Dependabot auto-merge") | not) | .bucket' 2>/dev/null || true
           }
 
+          # `gh pr merge` with the given flags. Sweep's re-runs race each other,
+          # so "Base branch was modified" (another PR merged first) is retried;
+          # any other error returns 1 at once.
+          merge_with_retry() {
+            local out attempt
+            for attempt in 1 2 3; do
+              if out="$(gh pr merge "$@" "$PR_URL" 2>&1)"; then
+                printf '%s\n' "$out"
+                return 0
+              fi
+              printf '%s\n' "$out"
+              grep -qi 'base branch was modified' <<<"$out" || return 1
+              [ "$attempt" -lt 3 ] || return 1
+              echo "Base branch moved under the merge (attempt ${attempt}/3) - retrying in 15s."
+              sleep 15
+            done
+          }
+
+          # Prints fresh | stale | none. `mergeable` is computed lazily after
+          # the base moves, so UNKNOWN is re-read a few times. "fresh" is a
+          # conflict against a base commit under an hour old.
+          conflict_state() {
+            local m="" base_at base_s _
+            for _ in 1 2 3; do
+              m="$(gh pr view "$PR_URL" --json mergeable --jq .mergeable 2>/dev/null || true)"
+              [ "$m" = UNKNOWN ] || break
+              sleep 5
+            done
+            if [ "$m" != CONFLICTING ]; then echo none; return; fi
+            base_at="$(gh api "repos/${REPO}/commits/${BASE_REF}" --jq '.commit.committer.date' 2>/dev/null || true)"
+            base_s="$(date -u -d "$base_at" +%s 2>/dev/null || echo 0)"
+            if [ "$base_s" -gt 0 ] && [ $(( $(date -u +%s) - base_s )) -lt 3600 ]; then
+              echo fresh
+            else
+              echo stale
+            fi
+          }
+
+          # Withholds a fresh conflict (Dependabot rebases it, which re-runs
+          # this job) and hands off a stale one. Returns only when the PR does
+          # not conflict.
+          exit_on_conflict() {
+            case "$(conflict_state)" in
+              fresh)
+                echo "::notice::Merge conflict against a base that moved in the last hour - Dependabot rebases conflicting PRs, and the rebase re-runs this job. Not handing off."
+                exit 0 ;;
+              stale)
+                echo "::notice::Merge conflict that Dependabot has not rebased in an hour - leaving PR for manual review."
+                echo "review=merge conflict Dependabot has not rebased" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+            esac
+          }
+
+          # Direct merge. A failure that is not a conflict fails the step, and
+          # the hand-off step reports it as "auto-merge step failed".
+          merge_now() {
+            merge_with_retry --"$MERGE_METHOD" && return 0
+            exit_on_conflict
+            echo "::error::Merge failed - leaving PR for manual review."
+            exit 1
+          }
+
           # How many status checks does the base branch REQUIRE? Rulesets and
           # classic branch protection both count. A lookup that fails counts as
           # none, which is the safe direction: the rules endpoint answers 403 on
@@ -262,7 +335,7 @@ jobs:
             if [ -n "$buckets" ] && ! grep -q '^pending$' <<<"$buckets"; then
               gh pr review --approve "$PR_URL" || echo "approve skipped (non-fatal)"
               echo "All checks finished green - merging ($MERGE_METHOD)."
-              gh pr merge --"$MERGE_METHOD" "$PR_URL"
+              merge_now
               exit 0
             fi
             echo "::notice::Auto-merge withheld until CI finishes: '${BASE_REF}' has no required checks, so arming auto-merge would merge before CI. The sweep re-runs this and merges once every check is green."
@@ -272,7 +345,8 @@ jobs:
           gh pr review --approve "$PR_URL" || echo "approve skipped (non-fatal)"
 
           # 1) Native auto-merge: GitHub merges once the required checks pass.
-          if out="$(gh pr merge --auto --"$MERGE_METHOD" "$PR_URL" 2>&1)"; then
+          if out="$(merge_with_retry --auto --"$MERGE_METHOD")"; then
+            echo "$out"
             echo "Native auto-merge armed - GitHub merges once required checks pass."
             exit 0
           fi
@@ -280,9 +354,13 @@ jobs:
 
           # 2) Already green: GitHub rejects --auto with "clean status" - merge now.
           if grep -qi 'clean status' <<<"$out"; then
-            gh pr merge --"$MERGE_METHOD" "$PR_URL"
+            merge_now
             exit 0
           fi
+
+          # A conflicting PR cannot merge however long the checks take, so
+          # settle that before polling bills any minutes.
+          exit_on_conflict
 
           # 3) Polling fallback: checks are required but native auto-merge is
           #    unavailable (e.g. the "Allow auto-merge" repo setting is off).
@@ -298,7 +376,7 @@ jobs:
               fi
               if ! grep -q '^pending$' <<<"$buckets"; then
                 echo "All checks green - merging ($MERGE_METHOD)."
-                gh pr merge --"$MERGE_METHOD" "$PR_URL"
+                merge_now
                 exit 0
               fi
             fi
