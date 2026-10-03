@@ -12,18 +12,27 @@ per-repo copies.
 | Workflow | Purpose |
 |---|---|
 | [`dependabot-auto-merge.yml`](.github/workflows/dependabot-auto-merge.yml) | Auto-merge Dependabot patch/minor bumps, gated on a supply-chain package-age cooldown |
+| [`dependabot-auto-merge-sweep.yml`](.github/workflows/dependabot-auto-merge-sweep.yml) | Re-run auto-merge runs that withheld, so they merge once eligible |
 | [`security-review-reusable.yml`](.github/workflows/security-review-reusable.yml) | Claude Code security review |
 
 ### Dependabot auto-merge: caller contract
 
-The auto-merge workflow runs in **two modes**, chosen by the caller's trigger.
+Auto-merge is **two reusable workflows**, and each repo needs **two thin
+callers**, one per file:
 
-**PR mode** evaluates the PR in the event payload. **Sweep mode** re-runs
-auto-merge runs that withheld, so a PR held back by the age cooldown is
-re-examined once the cooldown expires. Without a sweep trigger a withheld PR is
-never looked at again. It stays green, mergeable, and stranded indefinitely.
+- **PR mode** (`dependabot-auto-merge.yml`) evaluates the PR in the event
+  payload. It merges, withholds (age cooldown), or hands off for review.
+- **Sweep** (`dependabot-auto-merge-sweep.yml`) re-runs the latest auto-merge
+  run of each open Dependabot PR, so a withheld PR is looked at again. Without
+  a sweep caller a withheld PR stays green, mergeable and stranded.
 
-Full caller, both modes:
+They are separate files because a reusable workflow may not request more
+permission than its caller grants, and that ceiling applies to the whole called
+file. Sweep needs `actions: write` for `gh run rerun`; while both modes lived in
+one file, every PR-mode call died at `startup_failure` (2026-08-31 to
+2026-09-05, 20 of 20 repos).
+
+PR-mode caller, `.github/workflows/dependabot-auto-merge.yml`:
 
 ```yaml
 name: Dependabot auto-merge
@@ -31,38 +40,69 @@ name: Dependabot auto-merge
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: ${{ github.actor == 'dependabot[bot]' }}
+    uses: dcyfr-labs/.github/.github/workflows/dependabot-auto-merge.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
+```
+
+Sweep caller, `.github/workflows/dependabot-auto-merge-sweep.yml`:
+
+```yaml
+name: Dependabot auto-merge sweep
+
+on:
   schedule:
-    - cron: "17 5 * * *"   # daily; stagger the minute across repos
+    - cron: '6 6 * * 2'   # weekly; give each repo its own weekday AND minute
   workflow_dispatch:
 
 permissions:
   contents: write
   pull-requests: write
-  actions: write           # sweep mode calls `gh run rerun`
+  actions: write
 
 jobs:
-  auto-merge:
-    # PR mode is Dependabot-only; sweep mode has no Dependabot actor.
-    if: ${{ github.event_name != 'pull_request' || github.actor == 'dependabot[bot]' }}
-    uses: dcyfr-labs/.github/.github/workflows/dependabot-auto-merge.yml@main
+  sweep:
+    uses: dcyfr-labs/.github/.github/workflows/dependabot-auto-merge-sweep.yml@main
     permissions:
       contents: write
       pull-requests: write
       actions: write
 ```
 
-Three things bite if you shortcut this:
+What bites if you shortcut this:
 
-- **`actions: write` is required.** A caller's `permissions:` block is the
-  ceiling for the reusable workflow, so leaving it out makes `gh run rerun`
-  403 while every other step still reports green.
-- **The job-level `if:` must admit non-PR events.** The original
-  `github.actor == 'dependabot[bot]'` gate alone skips every scheduled run.
-- **Stagger the cron minute** across repos. Identical `cron` values across a
-  dozen repos queue against the same runner pool at the same instant.
+- **Never add a permission to `dependabot-auto-merge.yml`.** Every PR-mode
+  caller grants exactly `contents: write` + `pull-requests: write`, so a third
+  permission breaks all of them at once. A step that needs more gets its own
+  file.
+- **The sweep caller must grant all three permissions.** Granting less fails
+  at `startup_failure`, which is silent: no check, no annotation. Run a new
+  sweep caller once with `gh workflow run "Dependabot auto-merge sweep"` and
+  confirm the run reached a step.
+- **The sweep caller must not trigger on `pull_request`**, and needs no actor
+  gate: scheduled runs have no Dependabot actor.
+- **Spread the sweep cron across the week, not just the hour.** Every repo
+  competes for the same hosted runners; at most three per weekday, each on its
+  own minute.
+- **The PR-mode gate reads `github.actor`, the account behind the latest
+  push.** A commit pushed onto a Dependabot branch with a personal token (a
+  lockfile sync, say) makes that run's actor the token's owner, so the run is
+  skipped, and so is every sweep re-run of it.
 
-Sweep mode is safe to run on any cadence: a PR still inside its cooldown simply
-withholds again, and a merged PR drops out of the list.
+Inputs (all optional): PR mode takes `merge-method` (`squash`),
+`timeout-minutes` (`45`), `min-package-age-days` (`7`), `review-assignee`
+(`dcyfr`) and `review-label` (`needs-review`); sweep takes `sweep-max-prs`
+(`50`). Sweep is safe on any cadence: a PR still inside its cooldown withholds
+again, and a merged PR drops out of the list.
 
 ### Dependabot auto-merge: manual review hand-off
 
