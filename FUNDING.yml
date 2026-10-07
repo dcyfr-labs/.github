@@ -1,0 +1,3 @@
+# Default for every dcyfr-labs repo without its own FUNDING.yml.
+# Shows the Sponsor button and routes it to github.com/sponsors/dcyfr.
+github: dcyfr
