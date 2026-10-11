@@ -3,9 +3,22 @@
 Org-level defaults for **dcyfr-labs**: the profile README, and the reusable
 workflows every repo calls instead of keeping its own copy.
 
-It also holds the default [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md), which
-every dcyfr-labs repository without its own file inherits. Do not add
-per-repo copies.
+It also holds the default community health files. Every dcyfr-labs
+repository without its own copy inherits them:
+
+| File | Purpose |
+|---|---|
+| [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md) | Contributor Covenant 3.0. Do not add per-repo copies. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to report bugs, propose changes and open pull requests |
+| [`SECURITY.md`](SECURITY.md) | Private vulnerability reporting and response targets |
+| [`SUPPORT.md`](SUPPORT.md) | Where to ask for help |
+| [`FUNDING.yml`](FUNDING.yml) | The Sponsor button |
+| [`.github/ISSUE_TEMPLATE/`](.github/ISSUE_TEMPLATE/) | Bug, feature and question forms |
+| [`.github/pull_request_template.md`](.github/pull_request_template.md) | The pull request checklist |
+
+A repository overrides a default by carrying its own file. Keep a
+per-repo copy only when it says something the default can't (release
+commands, a DCO requirement, a plugin security policy).
 
 ## Reusable workflows
 
