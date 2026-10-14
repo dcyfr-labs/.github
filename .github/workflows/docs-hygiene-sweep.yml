@@ -1,0 +1,68 @@
+# Weekly docs-hygiene sweep over every public, unarchived dcyfr-labs repository.
+# Catches findings in repositories that do not call the reusable workflow yet.
+# Report-only: the job summary lists findings per repository. Set
+# FAIL_ON_FINDINGS to 'true' once the org is clean, so a new finding turns the
+# scheduled run red.
+
+name: docs-hygiene sweep
+
+on:
+  schedule:
+    - cron: '17 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FAIL_ON_FINDINGS: 'false'
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Scan public repositories
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh repo list dcyfr-labs --visibility public --no-archived --limit 200 --json name --jq '.[].name' | sort > repos.txt
+          total=0
+          {
+            echo "## docs-hygiene sweep"
+            echo
+            echo "| Repository | Findings |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          while read -r name; do
+            git clone -q --depth 1 "https://github.com/dcyfr-labs/$name.git" "scan/$name"
+            node docs-hygiene/scan.mjs --root "scan/$name" --remote --json "scan/$name.json" > "scan/$name.log" 2>&1 || true
+            if [ ! -f "scan/$name.json" ]; then
+              echo "| $name | scan failed, see log |" >> "$GITHUB_STEP_SUMMARY"
+              total=$((total + 1))
+              continue
+            fi
+            n=$(node -e 'const j=require(process.argv[1]); console.log(j.fresh.length)' "$PWD/scan/$name.json")
+            total=$((total + n))
+            echo "| $name | $n |" >> "$GITHUB_STEP_SUMMARY"
+          done < repos.txt
+          echo "total=$total" >> "$GITHUB_ENV"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo "Total: $total. Per-finding detail is in each repository's step log above." >> "$GITHUB_STEP_SUMMARY"
+          for f in scan/*.log; do echo "::group::$(basename "$f" .log)"; cat "$f"; echo "::endgroup::"; done
+
+      - name: Fail on findings
+        if: env.FAIL_ON_FINDINGS == 'true' && env.total != '0'
+        run: |
+          echo "docs-hygiene found $total issues across public repositories"
+          exit 1

@@ -1,0 +1,82 @@
+# docs-hygiene: attribution, public-exposure and link checks for a repository's
+# tracked files. The rules and their reasons are in docs-hygiene/README.md.
+#
+# Callers pin by full commit SHA and pass the same SHA as gate-ref:
+#
+#   jobs:
+#     docs-hygiene:
+#       uses: dcyfr-labs/.github/.github/workflows/docs-hygiene-reusable.yml@<sha>
+#       with:
+#         gate-ref: <sha>
+#
+# A repository that starts with findings commits a baseline
+# (node docs-hygiene/scan.mjs --remote --write-baseline .docs-hygiene-baseline.json)
+# so only new findings fail. Shrink the baseline as findings are fixed.
+
+name: docs-hygiene
+
+on:
+  workflow_call:
+    inputs:
+      gate-ref:
+        description: Commit SHA of dcyfr-labs/.github holding the scanner. Same SHA as the `uses:` pin.
+        required: true
+        type: string
+      baseline:
+        description: Baseline file in the calling repository. Missing means no baseline.
+        required: false
+        type: string
+        default: .docs-hygiene-baseline.json
+      fail:
+        description: Fail the job on findings not in the baseline. False reports them as warnings.
+        required: false
+        type: boolean
+        default: true
+      remote:
+        description: Look up linked dcyfr-labs and dcyfr repos (private, archived) through the GitHub API.
+        required: false
+        type: boolean
+        default: true
+      runs-on:
+        required: false
+        type: string
+        default: ubuntu-latest
+
+permissions:
+  contents: read
+
+jobs:
+  docs-hygiene:
+    name: docs-hygiene
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: 10
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: repo
+          persist-credentials: false
+
+      - name: Check out the scanner
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: dcyfr-labs/.github
+          ref: ${{ inputs.gate-ref }}
+          path: gate
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+
+      - name: Scan
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          BASELINE: ${{ inputs.baseline }}
+          FAIL: ${{ inputs.fail }}
+          REMOTE: ${{ inputs.remote }}
+        run: |
+          args=(--root repo --baseline "repo/$BASELINE" --json docs-hygiene.json)
+          [ "$REMOTE" = true ] && args+=(--remote)
+          [ "$FAIL" = true ] && args+=(--fail)
+          node gate/docs-hygiene/scan.mjs "${args[@]}"
