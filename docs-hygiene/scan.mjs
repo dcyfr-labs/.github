@@ -76,11 +76,18 @@ export function proseLines(body) {
   const out = [];
   let fence = null;
   body.split('\n').forEach((raw, i) => {
-    const m = raw.match(/^\s*(`{3,}|~{3,})/);
+    const m = raw.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (m) {
-      if (!fence) fence = m[1][0];
-      else if (m[1][0] === fence) fence = null;
-      return;
+      // CommonMark: only a run of the same character, at least as long and
+      // with no info string, closes a fence. A ```` block can hold ``` blocks.
+      if (!fence) {
+        fence = m[1];
+        return;
+      }
+      if (m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) {
+        fence = null;
+        return;
+      }
     }
     if (!fence) out.push({ n: i + 1, text: raw });
   });
@@ -118,7 +125,7 @@ export function checkExposure(file, lines, isDoc = true) {
       if (!PLACEHOLDER_USER.test(m[2])) out.push(finding('exposure.home-path', file, n, text, `/${m[1]}/${m[2]}/`));
     }
     for (const m of text.matchAll(OP_REF)) {
-      if (!/[<{$]|\.\.\.|VAULT|ITEM|example/i.test(m[0])) out.push(finding('exposure.op-ref', file, n, text, m[0]));
+      if (!/[<{$*]|\.\.\.|VAULT|ITEM|example/i.test(m[0])) out.push(finding('exposure.op-ref', file, n, text, m[0]));
     }
     if (isDoc && TLP.test(text)) out.push(finding('exposure.tlp', file, n, text, text.trim().slice(0, 40)));
   }

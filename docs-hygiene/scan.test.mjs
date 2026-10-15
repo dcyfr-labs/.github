@@ -63,6 +63,7 @@ test('op:// with real-looking IDs is flagged; templated references pass', () => 
     'SONAR_TOKEN=op://abc123/def456/credential', // docs-hygiene-allow
     'KEY=op://<vault>/<item>/field',
     'KEY=op://${VAULT}/item/field',
+    'never touch: `op://**`',
   ));
   assert.deepEqual(rules(hits), ['exposure.op-ref']);
 });
@@ -82,6 +83,12 @@ test('fenced code is skipped and inline code hides links', () => {
   const body = 'a [x](one.md)\n```\n[y](two.md)\n```\nb `[z](three.md)` [w](four.md)\n';
   const targets = proseLines(body).flatMap((l) => linkTargets(l.text));
   assert.deepEqual(targets, ['one.md', 'four.md']);
+});
+
+test('a longer fence holds shorter fences, and only a bare run closes it', () => {
+  const body = '````mdx\n```bash\n[a](one.md)\n```\n[b](two.md)\n````\n[c](three.md)\n```js\n```ts\n[d](four.md)\n```\n[e](five.md)\n';
+  const targets = proseLines(body).flatMap((l) => linkTargets(l.text));
+  assert.deepEqual(targets, ['three.md', 'five.md']);
 });
 
 function repo(files) {
