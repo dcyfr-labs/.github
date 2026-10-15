@@ -19,6 +19,11 @@
 // A line containing the marker `docs-hygiene-allow` is skipped by every rule;
 // use it for fixtures and for deliberate, documented exceptions.
 //
+// `.docs-hygiene-history` at the repository root lists path prefixes, one per
+// line, that hold point-in-time records (archives, dated reports). The link
+// rules skip them: their links are allowed to rot. Exposure and attribution
+// rules still apply. `--history <prefix>` adds prefixes from the command line.
+//
 // Uses only Node built-ins so it runs from a bare checkout. A baseline file
 // turns it into a ratchet: findings already in the baseline are reported as
 // known and do not fail the run.
@@ -27,6 +32,7 @@
 //   node scan.mjs [--root <dir>] [--remote] [--fail] [--json <out>]
 //                 [--baseline <file>] [--write-baseline <file>]
 //                 [--person "Full Name"]... [--skip <rule>]...
+//                 [--history <path-prefix>]...
 
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
@@ -193,16 +199,29 @@ function gitlinkPaths(root) {
     .map((l) => l.slice(l.indexOf('\t') + 1));
 }
 
+/** Path prefixes from `<root>/.docs-hygiene-history`; blank lines and `#` comments are ignored. */
+export function historyPrefixes(root) {
+  const file = join(root, '.docs-hygiene-history');
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8')
+    .split('\n')
+    .map((l) => l.replace(/#.*/, '').trim())
+    .filter(Boolean)
+    .map((l) => l.replace(/^\.?\//, ''));
+}
+
 function trackedFiles(root) {
   return execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     .split('\0')
     .filter(Boolean);
 }
 
-export async function scan({ root, people = ['Drew Gowan'], remote = false, skip = [], owners = ['dcyfr-labs', 'dcyfr'], files, gitlinks, fetchImpl, token } = {}) {
+export async function scan({ root, people = ['Drew Gowan'], remote = false, skip = [], owners = ['dcyfr-labs', 'dcyfr'], files, gitlinks, history = [], fetchImpl, token } = {}) {
   const rootAbs = resolve(root);
   const all = files ?? trackedFiles(rootAbs);
   const submodules = gitlinks ?? (files ? [] : gitlinkPaths(rootAbs));
+  const historical = [...history, ...historyPrefixes(rootAbs)].map((h) => h.replace(/^\.?\//, ''));
+  const inHistory = (file) => historical.some((h) => file === h || file.startsWith(h.endsWith('/') ? h : `${h}/`));
   const findings = [];
   const links = [];
   for (const file of all) {
@@ -224,7 +243,7 @@ export async function scan({ root, people = ['Drew Gowan'], remote = false, skip
       .filter((l) => !l.text.includes('docs-hygiene-allow'));
     if (isDoc || isLicense || posix.basename(file) === 'package.json') findings.push(...checkAttribution(file, lines, people));
     findings.push(...checkExposure(file, lines, isDoc));
-    if (isDoc) {
+    if (isDoc && !inHistory(file)) {
       findings.push(...checkRelativeLinks(rootAbs, file, lines, existsSync, submodules));
       for (const l of repoLinks(lines, owners)) links.push({ file, ...l });
     }
@@ -257,7 +276,7 @@ export function summarize(findings) {
 }
 
 function parseArgs(argv) {
-  const opts = { root: '.', people: [], skip: [], remote: false, fail: false };
+  const opts = { root: '.', people: [], skip: [], history: [], remote: false, fail: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
@@ -269,6 +288,7 @@ function parseArgs(argv) {
     else if (a === '--write-baseline') opts.writeBaseline = next();
     else if (a === '--person') opts.people.push(next());
     else if (a === '--skip') opts.skip.push(next());
+    else if (a === '--history') opts.history.push(next());
     else throw new Error(`unknown argument: ${a}`);
   }
   if (!opts.people.length) opts.people = ['Drew Gowan'];

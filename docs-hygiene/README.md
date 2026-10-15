@@ -24,6 +24,12 @@ Fenced code blocks and inline code are skipped in Markdown. A line containing
 `docs-hygiene-allow` is skipped by every rule: use it for test fixtures and for
 an exception you have a reason for, and put the reason on the same line.
 
+Point-in-time records (archives, dated reports, closed investigations) describe
+the tree as it was, so their links are allowed to rot. List their path
+prefixes, one per line, in `.docs-hygiene-history` at the repository root (or
+pass `--history <prefix>`). The link rules skip those paths; the exposure and
+attribution rules still check them.
+
 ## Running it
 
 ```sh
