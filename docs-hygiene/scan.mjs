@@ -29,8 +29,8 @@
 //                 [--person "Full Name"]... [--skip <rule>]...
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, normalize, posix, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, normalize, posix, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const RULES = [
@@ -76,11 +76,18 @@ export function proseLines(body) {
   const out = [];
   let fence = null;
   body.split('\n').forEach((raw, i) => {
-    const m = raw.match(/^\s*(`{3,}|~{3,})/);
+    const m = raw.match(/^\s*(`{3,}|~{3,})(.*)$/);
     if (m) {
-      if (!fence) fence = m[1][0];
-      else if (m[1][0] === fence) fence = null;
-      return;
+      // CommonMark: only a run of the same character, at least as long and
+      // with no info string, closes a fence. A ```` block can hold ``` blocks.
+      if (!fence) {
+        fence = m[1];
+        return;
+      }
+      if (m[1][0] === fence[0] && m[1].length >= fence.length && !m[2].trim()) {
+        fence = null;
+        return;
+      }
     }
     if (!fence) out.push({ n: i + 1, text: raw });
   });
@@ -118,7 +125,7 @@ export function checkExposure(file, lines, isDoc = true) {
       if (!PLACEHOLDER_USER.test(m[2])) out.push(finding('exposure.home-path', file, n, text, `/${m[1]}/${m[2]}/`));
     }
     for (const m of text.matchAll(OP_REF)) {
-      if (!/[<{$]|\.\.\.|VAULT|ITEM|example/i.test(m[0])) out.push(finding('exposure.op-ref', file, n, text, m[0]));
+      if (!/[<{$*]|\.\.\.|VAULT|ITEM|example/i.test(m[0])) out.push(finding('exposure.op-ref', file, n, text, m[0]));
     }
     if (isDoc && TLP.test(text)) out.push(finding('exposure.tlp', file, n, text, text.trim().slice(0, 40)));
   }
@@ -132,8 +139,10 @@ export function checkTrackedFile(file) {
   return [];
 }
 
-export function checkRelativeLinks(root, file, lines, exists = existsSync) {
+/** `gitlinks` are submodule paths: a link into one cannot be checked when the submodule is not checked out. */
+export function checkRelativeLinks(root, file, lines, exists = existsSync, gitlinks = []) {
   const out = [];
+  const rootNorm = normalize(root);
   for (const { n, text } of lines) {
     for (const target of linkTargets(text)) {
       if (/^([a-z][a-z0-9+.-]*:|#|\/|\{|<|%7B)/i.test(target)) continue;
@@ -141,7 +150,9 @@ export function checkRelativeLinks(root, file, lines, exists = existsSync) {
       if (!path) continue;
       try { path = decodeURIComponent(path); } catch { /* keep raw */ }
       const abs = normalize(join(root, dirname(file), path));
-      if (!abs.startsWith(normalize(root))) continue;
+      if (!abs.startsWith(rootNorm)) continue;
+      const rel = abs.slice(rootNorm.length).replace(/^[\\/]+/, '').split(sep).join('/');
+      if (gitlinks.some((g) => rel === g || rel.startsWith(`${g}/`))) continue;
       if (!exists(abs)) out.push(finding('links.relative-missing', file, n, text, target));
     }
   }
@@ -174,15 +185,24 @@ export async function repoState(owner, repo, fetchImpl = fetch, token = process.
   return body.archived ? 'archived' : 'ok';
 }
 
+/** Submodule paths (mode 160000 entries in the index). */
+function gitlinkPaths(root) {
+  return execFileSync('git', ['-C', root, 'ls-files', '-s', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+    .split('\0')
+    .filter((l) => l.startsWith('160000 '))
+    .map((l) => l.slice(l.indexOf('\t') + 1));
+}
+
 function trackedFiles(root) {
   return execFileSync('git', ['-C', root, 'ls-files', '-z'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     .split('\0')
     .filter(Boolean);
 }
 
-export async function scan({ root, people = ['Drew Gowan'], remote = false, skip = [], owners = ['dcyfr-labs', 'dcyfr'], files, fetchImpl, token } = {}) {
+export async function scan({ root, people = ['Drew Gowan'], remote = false, skip = [], owners = ['dcyfr-labs', 'dcyfr'], files, gitlinks, fetchImpl, token } = {}) {
   const rootAbs = resolve(root);
   const all = files ?? trackedFiles(rootAbs);
+  const submodules = gitlinks ?? (files ? [] : gitlinkPaths(rootAbs));
   const findings = [];
   const links = [];
   for (const file of all) {
@@ -205,7 +225,7 @@ export async function scan({ root, people = ['Drew Gowan'], remote = false, skip
     if (isDoc || isLicense || posix.basename(file) === 'package.json') findings.push(...checkAttribution(file, lines, people));
     findings.push(...checkExposure(file, lines, isDoc));
     if (isDoc) {
-      findings.push(...checkRelativeLinks(rootAbs, file, lines));
+      findings.push(...checkRelativeLinks(rootAbs, file, lines, existsSync, submodules));
       for (const l of repoLinks(lines, owners)) links.push({ file, ...l });
     }
   }
@@ -275,7 +295,18 @@ async function main() {
   if (opts.fail && fresh.length) process.exit(1);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+// realpath both sides: macOS /tmp is a symlink to /private/tmp, so a plain
+// path compare silently skips main() when the script is invoked through it.
+function isEntry() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (isEntry()) {
   main().catch((err) => {
     console.error(err.message);
     process.exit(2);

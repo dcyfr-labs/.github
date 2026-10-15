@@ -2,9 +2,10 @@
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   checkAttribution,
@@ -62,6 +63,7 @@ test('op:// with real-looking IDs is flagged; templated references pass', () => 
     'SONAR_TOKEN=op://abc123/def456/credential', // docs-hygiene-allow
     'KEY=op://<vault>/<item>/field',
     'KEY=op://${VAULT}/item/field',
+    'never touch: `op://**`',
   ));
   assert.deepEqual(rules(hits), ['exposure.op-ref']);
 });
@@ -81,6 +83,12 @@ test('fenced code is skipped and inline code hides links', () => {
   const body = 'a [x](one.md)\n```\n[y](two.md)\n```\nb `[z](three.md)` [w](four.md)\n';
   const targets = proseLines(body).flatMap((l) => linkTargets(l.text));
   assert.deepEqual(targets, ['one.md', 'four.md']);
+});
+
+test('a longer fence holds shorter fences, and only a bare run closes it', () => {
+  const body = '````mdx\n```bash\n[a](one.md)\n```\n[b](two.md)\n````\n[c](three.md)\n```js\n```ts\n[d](four.md)\n```\n[e](five.md)\n';
+  const targets = proseLines(body).flatMap((l) => linkTargets(l.text));
+  assert.deepEqual(targets, ['three.md', 'five.md']);
 });
 
 function repo(files) {
@@ -104,6 +112,30 @@ test('scan: relative links resolve from the file; URLs, anchors and root paths a
     assert.deepEqual(hits.map((f) => `${f.file} ${f.detail}`), ['README.md docs/b.md']);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('scan: links into a submodule that is not checked out are skipped', async () => {
+  const root = repo({ 'README.md': '[sub](vendor/lib/README.md) [file](vendor/lib) [near](vendor/library.md)\n' });
+  execFileSync('git', ['-C', root, 'update-index', '--add', '--cacheinfo', `160000,${'a'.repeat(40)},vendor/lib`]);
+  try {
+    const hits = await scan({ root });
+    assert.deepEqual(hits.map((f) => f.detail), ['vendor/library.md']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('the CLI runs when invoked through a symlinked path', () => {
+  const root = repo({ 'README.md': '[gone](missing.md)\n' });
+  const link = join(mkdtempSync(join(tmpdir(), 'docs-hygiene-link-')), 'scan.mjs');
+  symlinkSync(fileURLToPath(new URL('./scan.mjs', import.meta.url)), link);
+  try {
+    const out = execFileSync(process.execPath, [link, '--root', root], { encoding: 'utf8' });
+    assert.match(out, /docs-hygiene: 1 new, 0 in baseline/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(dirname(link), { recursive: true, force: true });
   }
 });
 
