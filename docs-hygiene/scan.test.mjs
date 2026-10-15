@@ -206,8 +206,8 @@ test('the allow marker skips a line', async () => {
 
 test('a committed baseline file is not scanned', async () => {
   const root = repo({
-    '.docs-hygiene-baseline.json': JSON.stringify([{ rule: 'exposure.home-path', file: 'a.md', line: 1, text: 'see /Users/drew/x' }]),
-    'docs/.docs-hygiene-baseline.json': '["/Users/drew/y"]\n',
+    '.docs-hygiene-baseline.json': JSON.stringify([{ rule: 'exposure.home-path', file: 'a.md', line: 1, text: 'see /Users/drew/x' }]), // docs-hygiene-allow
+    'docs/.docs-hygiene-baseline.json': '["/Users/drew/y"]\n', // docs-hygiene-allow
   });
   try {
     assert.deepEqual(await scan({ root }), []);
