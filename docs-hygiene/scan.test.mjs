@@ -139,6 +139,29 @@ test('the CLI runs when invoked through a symlinked path', () => {
   }
 });
 
+test('scan: link rules skip .docs-hygiene-history paths; other rules still apply', async () => {
+  const root = repo({
+    '.docs-hygiene-history': '# point-in-time records\ndocs/archive/\n./docs/reports\n',
+    'docs/archive/2026-02.md': '[gone](missing.md) [repo](https://github.com/dcyfr-labs/secret-repo)\n',
+    'docs/reports/q1.md': '[gone](missing.md)\nCopyright (c) 2026 DCYFR\n',
+    'docs/reports-live.md': '[gone](missing.md)\n',
+    'docs/guide.md': '[gone](missing.md)\n',
+  });
+  const fetchImpl = async () => ({ status: 404 });
+  try {
+    const hits = await scan({ root, remote: true, fetchImpl });
+    assert.deepEqual(hits.map((f) => `${f.rule} ${f.file}`).sort(), [
+      'attribution.bare-dcyfr docs/reports/q1.md',
+      'links.relative-missing docs/guide.md',
+      'links.relative-missing docs/reports-live.md',
+    ]);
+    const cli = await scan({ root, history: ['docs/guide.md'] });
+    assert.ok(!cli.some((f) => f.file === 'docs/guide.md'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('scan --remote: private and archived repo links, archived allowed when the line says so', async () => {
   const root = repo({
     'README.md': [
@@ -174,6 +197,18 @@ test('repoState treats a private payload as unreachable and a redirect as fine',
 
 test('the allow marker skips a line', async () => {
   const root = repo({ 'a.md': 'path /Users/drew/x/ <!-- docs-hygiene-allow -->\n' });
+  try {
+    assert.deepEqual(await scan({ root }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a committed baseline file is not scanned', async () => {
+  const root = repo({
+    '.docs-hygiene-baseline.json': JSON.stringify([{ rule: 'exposure.home-path', file: 'a.md', line: 1, text: 'see /Users/drew/x' }]),
+    'docs/.docs-hygiene-baseline.json': '["/Users/drew/y"]\n',
+  });
   try {
     assert.deepEqual(await scan({ root }), []);
   } finally {
