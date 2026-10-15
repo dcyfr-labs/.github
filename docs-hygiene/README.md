@@ -16,7 +16,7 @@ install step.
 | `exposure.op-ref` | A 1Password `op://` reference with real vault or item IDs | It names where a secret lives. Templated references (`op://<vault>/...`, `op://${VAULT}/...`) pass |
 | `exposure.tlp` | A `TLP:AMBER` or `TLP:RED` marker in a doc | A file marked for limited sharing should not be in a public repository. Prose or tables that explain TLP pass |
 | `exposure.tracked-file` | Tracked logs (`*.ndjson`, `*.jsonl`, `*.log`), `.env`, `.env.ci`, `.mcp.json` | Runtime state and local config belong in `.gitignore`. Commit an `.example` copy instead |
-| `links.relative-missing` | A relative Markdown link to a file that does not exist | URLs, `#anchors` and site routes (`/blog`) are skipped |
+| `links.relative-missing` | A relative Markdown link to a file that does not exist | URLs, `#anchors` and site routes (`/blog`) are skipped, as are links into git submodules (not checked out in CI) |
 | `links.repo-unreachable` | A link to a `dcyfr-labs` or `dcyfr` repository the public cannot open | A private, renamed or deleted repo is a dead link for every reader. `--remote` only |
 | `links.repo-archived` | A link to an archived repository on a line that does not say "archived" | Readers follow it expecting a live project. `--remote` only |
 
