@@ -55,6 +55,9 @@ const TEXT_EXT = /\.(md|mdx|markdown|txt|json|jsonc|ya?ml|toml|js|mjs|cjs|ts|tsx
 const DOC_EXT = /\.(md|mdx|markdown)$/i;
 const SKIP_PATH = /(^|\/)(node_modules|\.git|dist|build|coverage|\.next|vendor)\//;
 const LOCKFILE = /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|poetry\.lock)$/;
+// A committed baseline quotes every finding it holds, so scanning it would
+// report each one a second time.
+const BASELINE = /(^|\/)\.docs-hygiene-baseline\.json$/;
 const MAX_BYTES = 1_000_000;
 
 // The entity name has to follow the cue directly ("Copyright 2026 DCYFR",
@@ -226,7 +229,7 @@ export async function scan({ root, people = ['Drew Gowan'], remote = false, skip
   const links = [];
   for (const file of all) {
     findings.push(...checkTrackedFile(file));
-    if (SKIP_PATH.test(file) || LOCKFILE.test(file)) continue;
+    if (SKIP_PATH.test(file) || LOCKFILE.test(file) || BASELINE.test(file)) continue;
     const isDoc = DOC_EXT.test(file);
     const isLicense = /(^|\/)LICENSE(\.\w+)?$/i.test(file);
     if (!isDoc && !isLicense && !TEXT_EXT.test(file)) continue;

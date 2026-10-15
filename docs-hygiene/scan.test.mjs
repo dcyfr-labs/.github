@@ -204,6 +204,18 @@ test('the allow marker skips a line', async () => {
   }
 });
 
+test('a committed baseline file is not scanned', async () => {
+  const root = repo({
+    '.docs-hygiene-baseline.json': JSON.stringify([{ rule: 'exposure.home-path', file: 'a.md', line: 1, text: 'see /Users/drew/x' }]),
+    'docs/.docs-hygiene-baseline.json': '["/Users/drew/y"]\n',
+  });
+  try {
+    assert.deepEqual(await scan({ root }), []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('baseline: known findings do not count as new', () => {
   const a = { rule: 'exposure.tlp', file: 'a.md', line: 3, text: '<!-- TLP:AMBER -->' };
   const b = { rule: 'exposure.tlp', file: 'b.md', line: 1, text: '<!-- TLP:AMBER -->' };
