@@ -3,9 +3,10 @@
 [![dcyfr.ai](https://img.shields.io/badge/dcyfr.ai-live-brightgreen?style=flat-square)](https://www.dcyfr.ai)
 [![npm](https://img.shields.io/npm/v/@dcyfr/ai?style=flat-square&label=%40dcyfr%2Fai&color=blue)](https://www.npmjs.com/package/@dcyfr/ai)
 
-DCYFR Labs builds open-source tools for running AI agents safely and cheaply:
-an agent harness, the checks around it, and starter templates to build on.
-Everything here is MIT-licensed unless a repository says otherwise.
+Security for agent systems, by someone who runs one. I'm Drew Gowan, and DCYFR
+Labs is my lab and advisory practice. The open-source code here is the working
+proof: an agent harness, the checks around it, and starter templates to build
+on. Everything here is MIT-licensed unless a repository says otherwise.
 
 ## Start here
 
