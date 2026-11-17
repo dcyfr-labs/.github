@@ -2,6 +2,7 @@
 
 [![dcyfr.ai](https://img.shields.io/badge/dcyfr.ai-live-brightgreen?style=flat-square)](https://www.dcyfr.ai)
 [![npm](https://img.shields.io/npm/v/@dcyfr/ai?style=flat-square&label=%40dcyfr%2Fai&color=blue)](https://www.npmjs.com/package/@dcyfr/ai)
+[![Sponsor](https://img.shields.io/github/sponsors/dcyfr?style=flat-square&label=sponsors)](https://github.com/sponsors/dcyfr)
 
 Security for agent systems, by someone who runs one. I'm Drew Gowan, and DCYFR
 Labs is my lab and advisory practice. The open-source code here is the working
@@ -13,6 +14,8 @@ on. Everything here is MIT-licensed unless a repository says otherwise.
 | Repository | What it does |
 |---|---|
 | [`cache-invariants`](https://github.com/dcyfr-labs/cache-invariants) | Finds the code that silently breaks LLM prompt caching, and audits real call logs to prove where a prefix changed |
+| [`spend-gate`](https://github.com/dcyfr-labs/spend-gate) | Stops an autonomous agent's paid calls when spend crosses a threshold, and keeps them stopped through a Redis outage or restart (Apache-2.0) |
+| [`aei-audit`](https://github.com/dcyfr-labs/aei-audit) | Audits Anthropic Economic Index automation shares task by task against O\*NET task statements |
 | [`dcyfr-ai`](https://github.com/dcyfr-labs/dcyfr-ai) | Runs one TypeScript agent across providers, with plugins and cost telemetry built in (`npm i @dcyfr/ai`) |
 | [`dcyfr-ai-cli`](https://github.com/dcyfr-labs/dcyfr-ai-cli) | Scaffolds projects and runs DCYFR AI workflows from one CLI (`npm i -g @dcyfr/ai-cli`) |
 | [`dcyfr-ai-rag`](https://github.com/dcyfr-labs/dcyfr-ai-rag) | Builds retrieval-augmented generation pipelines in Node.js (`npm i @dcyfr/ai-rag`) |
@@ -35,13 +38,13 @@ To try `@dcyfr/ai` without starting a project, use
 [dcyfr-ai-sandbox](https://github.com/dcyfr-labs/dcyfr-ai-sandbox).
 
 <details>
-<summary>Deprecated (still readable, no longer maintained)</summary>
+<summary>Archived (read-only, no longer maintained)</summary>
 
 | Repository | Since | Notes |
 |---|---|---|
-| [dcyfr-ai-docker](https://github.com/dcyfr-labs/dcyfr-ai-docker) | Feb 2026 | A template collection, not a library; the npm package is deprecated |
-| [dcyfr-ai-kubernetes](https://github.com/dcyfr-labs/dcyfr-ai-kubernetes) | Feb 2026 | See Helm, Pulumi or cdk8s |
-| [dcyfr-ai-notebooks](https://github.com/dcyfr-labs/dcyfr-ai-notebooks) | Feb 2026 | See Jupyter, Observable or Hex |
+| [dcyfr-ai-docker](https://github.com/dcyfr-labs/dcyfr-ai-docker) | Feb 2026 | Archived. A template collection, not a library; the npm package is deprecated |
+| [dcyfr-ai-kubernetes](https://github.com/dcyfr-labs/dcyfr-ai-kubernetes) | Feb 2026 | Archived. See Helm, Pulumi or cdk8s |
+| [dcyfr-ai-notebooks](https://github.com/dcyfr-labs/dcyfr-ai-notebooks) | Feb 2026 | Archived. See Jupyter, Observable or Hex |
 | [dcyfr-ai-web](https://github.com/dcyfr-labs/dcyfr-ai-web) | Feb 2026 | Archived |
 
 </details>
@@ -70,6 +73,18 @@ To try `@dcyfr/ai` without starting a project, use
 
 [atrium](https://github.com/dcyfr-labs/atrium) is a planned local-first control
 plane for AI agents. It is at the design stage, with no code yet.
+
+## Upstream
+
+When a project I depend on is broken, the fix goes back to it. The pull
+requests are listed on [my profile](https://github.com/dcyfr#upstream), in a
+table rebuilt weekly from GitHub search.
+
+## Sponsor
+
+[GitHub Sponsors](https://github.com/sponsors/dcyfr) pays for the maintenance
+of everything on this page and for the upstream fixes. Tiers start at $5 a
+month. Sponsors are listed at [dcyfr.ai/sponsors](https://www.dcyfr.ai/sponsors).
 
 ## Contributing
 
