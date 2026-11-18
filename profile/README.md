@@ -9,6 +9,8 @@ Labs is my lab and advisory practice. The open-source code here is the working
 proof: an agent harness, the checks around it, and starter templates to build
 on. Everything here is MIT-licensed unless a repository says otherwise.
 
+I'm not taking paid engagements right now, and advice is pro bono.
+
 ## Start here
 
 | Repository | What it does |
