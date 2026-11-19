@@ -1,6 +1,6 @@
 {
   "bundle": "docgen-gate-runner",
-  "bundle_version": "0.3.1",
+  "bundle_version": "0.3.2",
   "generator_version": "0.1.0",
   "built_by": "scripts/docgen/bundle-gate.mjs",
   "_rule": "Generated. Rebuild with `node scripts/docgen/bundle-gate.mjs`; `--check` fails if any file here disagrees with the workspace source it was cut from. Vendored files are byte identical to the module the daemon runs, so a digest here is a digest of the running gate.",
@@ -13,8 +13,8 @@
   "files": {
     "README.md": {
       "origin": "authored",
-      "bytes": 5903,
-      "sha256": "524a708a74918a841ea5afe2c6a24aeb94456b77dae9c02471710040da5ec74a"
+      "bytes": 5921,
+      "sha256": "b0602523a7ab828a4ba03a7cb63da5c08145f20e87dade423e6716bee2985382"
     },
     "eval.mjs": {
       "origin": "authored",
@@ -23,13 +23,13 @@
     },
     "package.json": {
       "origin": "generated",
-      "bytes": 367,
-      "sha256": "6a6746c758e7668d147f71b4a2949adc06a1ccf88d821697f3ff82e1232182f6"
+      "bytes": 369,
+      "sha256": "d0018499d1bd59b26d9ede17bf23bbd967eac1fa025a1f88a8e0814256895f85"
     },
     "scripts/docgen/core.mjs": {
       "origin": "vendored",
-      "bytes": 43329,
-      "sha256": "a801531becfec8dc09d179f476b8e41470a200c4993e69895ed677051339e605"
+      "bytes": 43336,
+      "sha256": "7473b71bbafa0fca8cd7120af3fcca95800a7ac67075a47d7fd2832c69bbfe9b"
     },
     "scripts/docgen/extract.mjs": {
       "origin": "generated",
@@ -38,8 +38,8 @@
     },
     "scripts/docgen/gate.mjs": {
       "origin": "vendored",
-      "bytes": 31240,
-      "sha256": "ef0a4f242da1956c8a77e2701bd237abc715b788046a7c4eb0d14e2dea98cfd4"
+      "bytes": 31371,
+      "sha256": "a6ee165f997e4b323075833c465068ea864eaf4f57aaeeb6f5555f7a95423418"
     },
     "scripts/docgen/mermaid-check.mjs": {
       "origin": "vendored",
@@ -53,8 +53,8 @@
     },
     "scripts/validate-prose.mjs": {
       "origin": "vendored",
-      "bytes": 39198,
-      "sha256": "524731515702e6cff598068f0fffa4fc29033939338f338367f292c7f210125b"
+      "bytes": 39209,
+      "sha256": "6bfb68f7256921edd0f4beee5b28ed671ad8c3373ba045c368b9d139b9777f13"
     },
     "usr/docgen/docgen.markdownlint-cli2.jsonc": {
       "origin": "vendored",

@@ -59,9 +59,9 @@ The bundle is copied into `dcyfr-labs/.github`, which is public and already
 hosts the security-review reusable workflow.
 
 ```bash
-# from a checkout of dcyfr-labs/.github, with rei-workspace beside it
+# from a checkout of dcyfr-labs/.github; WORKSPACE is the checkout that builds the bundle
 rm -rf docgen-gate
-cp -R ../rei-workspace/usr/docgen/gate-runner docgen-gate
+cp -R "$WORKSPACE/usr/docgen/gate-runner" docgen-gate
 cp docgen-gate/workflows/docs-wiki-eval-reusable.yml .github/workflows/
 node docgen-gate/eval.mjs --verify-bundle
 ```
@@ -78,7 +78,7 @@ both places, and the two SHAs must match:
 ```yaml
 jobs:
   docs-wiki-eval:
-    if: github.event.pull_request.user.login == 'app/rei-doc-specialist'
+    if: github.event.pull_request.user.login == 'app/dcyfr-doc-specialist'
     uses: dcyfr-labs/.github/.github/workflows/docs-wiki-eval-reusable.yml@<sha>
     with:
       gate-ref: <the same sha>
