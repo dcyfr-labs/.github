@@ -650,7 +650,7 @@ function listFiles() {
   if (dirs.length) {
     try {
       // '|| true': find exits 1 on any unreadable dir (the sandbox denies
-      // knowledge-base/ and logs/rei/journal/), which would otherwise throw
+      // knowledge-base/ and the journal directory), which would otherwise throw
       // away every file it *did* find.
       out.push(...execSync(
         `find ${dirs.map((d) => `'${d}'`).join(' ')} \\( ${prune} \\) -prune -o -type f \\( ${inc} \\) -print 2>/dev/null || true`,
@@ -666,7 +666,7 @@ function listFiles() {
  * Drop gitignored paths from a full sweep.
  *
  * `find` knows nothing about .gitignore, so the sweep scored generated local
- * state as if it were authored prose. `usr/agents/rei/library/analyze/`
+ * state as if it were authored prose. The agent's `library/analyze/` directory
  * (.gitignore:200) is daemon output: it regenerates every cycle, exists in no
  * commit, and differs per checkout. A ratchet regression there can never be
  * committed, reviewed, or fixed in a PR — yet four such files failed
